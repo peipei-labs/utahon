@@ -183,7 +183,7 @@ export function validatePracticeData(value: unknown, durationSec = 0, repairStor
     const seen = new Set<string>();
     for (const [index, event] of events.entries()) {
       if (seen.has(event.id)) {
-        if (!repairStoredIds) throw new Error("和弦或段落 ID 不能重复");
+        if (!repairStoredIds) throw new Error(`${events === chords ? "和弦" : "段落"} ID 不能重复`);
         let suffix = 0;
         do { event.id = `restored-${index}-${suffix++}`; } while (reserved.has(event.id));
         reserved.add(event.id);
