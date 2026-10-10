@@ -1,6 +1,6 @@
 # Utahon 歌本 🎵
 
-> 从喜欢的歌入手学日语 — 歌词 / 音译 / 翻译 / 词性三合一标注 · AI 全流程自动化
+> 从喜欢的歌入手学日语 — 歌词 / 音译 / 翻译 / 词性标注，配合慢放、循环与可编辑和弦草稿。
 
 ![首页歌单](docs/screenshots/home-desktop.png)
 
@@ -15,8 +15,11 @@
 - ✍️ **原曲/翻唱双作者字段**：`Akashi Myu · 原曲 saewool · 31 行` 翻唱党友好
 - ⌨️ **极简输入**：频道贴 `@akashimyu`、重转贴 `BV1USAQzDEav` 或 `dQw4w9WgXcQ`，完整 URL 同样接受
 - 🎸 **弹唱练习台**：YouTube 或自有音频均可保留音高慢放、A/B 循环、段落循环和前后留白
-- 🎼 **可编辑和弦谱**：自动和弦贴到对应歌词行，支持常用指法图、简化和弦、Capo 换指法和 ChordPro 导出
+- 🎼 **可编辑和弦草稿**：自动和弦贴到对应歌词行，支持常用指法图、简化和弦、Capo 换指法和 ChordPro 导出；不是含节奏、拨弦信息的完整六线谱
 - 🎚️ **四轨练习混音**：Demucs 分出人声、鼓、贝斯、其他四轨，可逐轨调音量、静音或独听
+- 🔊 **按需发音**：Edge Nanami / Keita，无需常驻语音模型；线上失败时有提示，有可用日语系统音色时可回退到本机朗读
+
+自动转录、翻译和和弦都可能出错。歌曲页提供歌词纠错与播放来源编辑；修改歌词后重新分析，失败时保留原内容。未人工核对的内容不要当作标准答案。模型输出会检查行数、顺序与词语拼回原文，但这些检查不能代替听歌校对。
 
 ---
 
@@ -70,10 +73,10 @@
 ```bash
 # 安装依赖
 npm install
-uv sync                    # yt-dlp 虚拟环境
+uv sync                    # yt-dlp 与 EJS 脚本（YouTube 使用已有 Node 22+）
 
 # 配置 .env.local（推荐走个人 AI Gateway）
-AI_GATEWAY_BASE_URL=https://gateway.pei-pei.icu
+AI_GATEWAY_BASE_URL=https://gateway.peipei.dev
 AI_GATEWAY_API_KEY=...
 GEMINI_ANALYZE_MODEL=gemini-3.1-flash-lite
 GEMINI_SHARE_MODEL=gemini-3.1-flash-lite
@@ -92,7 +95,9 @@ npm run dev
 
 ### 🎸 生成练习谱与分轨
 
-歌曲页先点 `Upload audio` 上传自己持有的音频。上传完成后，URL 中 `/song/` 后面的字符串就是 song ID。模型不常驻服务器，而是在 Apple Silicon Mac 上一次性分析，再通过 SSH 把结果导回当前音频版本。
+歌曲页点击「从视频取得音频」，即可把当前 YouTube / Bilibili 来源保存成练习音频；也可以填写另一条视频链接、视频 ID 或 BV 号。无需先下载到电脑再上传。没有可用视频来源、下载受限时，仍可点「上传音频文件」上传自己持有的音频。请确认音频与歌词是同一录音版本，否则歌词时间可能对不上。
+
+取得音频后就能慢放和循环。和弦、节拍、段落与分轨仍需在 Apple Silicon Mac 上按需分析，不会自动启动常驻模型。练习台提供可复制的完整命令；运行后会通过 SSH 自动拉取 VPS 音频，再把结果导回对应歌曲。
 
 ```bash
 # 首次安装分析环境（Python 3.10，由 uv 管理）
@@ -110,7 +115,23 @@ uv run --no-sync python utahon_analyze.py \
   --song <song-id> --allin-model harmonix-all
 ```
 
-默认 SSH alias 是 `2c2g5-c`，远端目录是 `/opt/utahon`；可用 `--host` 和 `--remote-root` 覆盖。自动分析不会覆盖手工改过的和弦、段落、Capo 或谱面显示选择。自有音频与四轨保存在 `data/practice/`，不进入 Git。
+默认 SSH alias 是 `2c2g5-c`，远端目录是 `/opt/utahon`；可用 `--host` 和 `--remote-root` 覆盖。自动分析不会覆盖手工改过的和弦、段落、Capo 或谱面显示选择。练习音频与四轨保存在 `data/practice/`，不进入 Git。
+
+替换练习音频需要确认：不同音频会清除旧自动分析，保留仍在新音频时长内的人工和弦与段落；旧音频移入 `data/trash/`。重复取得完全相同的音频会保留已有分析。下载失败或下载期间歌曲/练习已变化时，不覆盖原内容。
+
+运行上述命令后，页面会刷新分析状态；若你同时在编辑，草稿会保留，需确认载入最新结果后再保存，过期保存会被拒绝。无精确指法的和弦显示缺失，不会用其他和弦的图替代。视频下载受来源站可用性、登录状态和网络影响，失败时页面会提示换来源或上传音频。
+
+### 发音与测试
+
+VOICEVOX 已停用，旧 Azure 配置不再参与发音。旧音色偏好自动切换到 Nanami；网页不会启动或连接 VOICEVOX。需要恢复该服务时应另行明确配置，而不是依靠容器自动重启。
+
+```bash
+npm test
+uv run --project audio-worker --no-sync python -m unittest discover -s tests -p test_worker_merge.py
+npm run build
+```
+
+`npm test` 使用独立临时数据库，不改歌库。`npm run test:practice` 是有写入的 API 集成测试，只能在隔离测试实例运行，不要指向生产歌曲库。
 
 ---
 

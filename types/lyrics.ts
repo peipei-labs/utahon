@@ -28,6 +28,7 @@ export type AnalyzedSong = {
   originalArtist?: string;
   youtubeUrl: string;
   youtubeId: string;
+  transcriptionSourceUrl?: string;
   lines: AnalyzedLine[];
 };
 
@@ -48,4 +49,5 @@ export type SongMeta = {
 export type SongFull = SongMeta & {
   lyrics: string;
   analyzed: AnalyzedSong;
+  updatedAt: number;
 };

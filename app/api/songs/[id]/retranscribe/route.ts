@@ -2,7 +2,8 @@ import { transcribeYoutube } from "@/lib/transcribe";
 import { analyzeLyrics } from "@/lib/analyze-pipeline";
 import { isGeminiTimeoutError } from "@/lib/gemini-client";
 import { getSong, updateSongLyrics } from "@/lib/songs";
-import { detectSource } from "@/lib/source";
+import { getPractice } from "@/lib/practice";
+import { resolveTranscriptionSource, sourceFields } from "@/lib/song-source";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,46 +20,41 @@ export async function POST(
   }
 
   const body = (await req.json().catch(() => null)) as
-    | { sourceInput?: string }
+    | { sourceInput?: unknown; updatedAt?: unknown; confirmLocalAudioSource?: unknown }
     | null;
-  const sourceInput = body?.sourceInput?.trim();
-
-  let sourceUrl = "";
-  if (sourceInput) {
-    const parsed = detectSource(sourceInput);
-    if (!parsed) {
-      return Response.json(
-        { error: "无法识别来源 请贴 BV 号 / YouTube videoId / 完整 URL" },
-        { status: 400 }
-      );
-    }
-    sourceUrl = parsed.url;
-  } else {
-    sourceUrl =
-      song.analyzed.youtubeUrl ||
-      (song.youtubeId
-        ? `https://www.youtube.com/watch?v=${song.youtubeId}`
-        : "");
+  if (!Number.isSafeInteger(body?.updatedAt)) {
+    return Response.json({ error: "缺少歌曲版本，请刷新页面后重试" }, { status: 400 });
   }
+  if (body?.updatedAt !== song.updatedAt) {
+    return Response.json({ error: "歌曲已更新，请刷新后重试；未覆盖已有内容" }, { status: 409 });
+  }
+  const sourceInput = typeof body.sourceInput === "string" ? body.sourceInput.trim() : "";
 
-  if (!sourceUrl) {
+  const source = resolveTranscriptionSource(sourceInput, song);
+  if (!source) {
     return Response.json(
-      { error: "歌曲无来源 请在输入框贴 BV 号或 YouTube ID" },
+      { error: "没有可识别的转录来源，请提供 BV 号 / YouTube videoId / 完整 URL" },
       { status: 400 }
     );
   }
+  if (source.kind === "bilibili" && getPractice(id)?.hasAudio && body.confirmLocalAudioSource !== true) {
+    return Response.json({
+      error: "BV 无法内嵌播放，现有上传音频不会自动替换。请确认上传音频与该 BV 是同一录音版本后再转录；否则先替换音频。",
+    }, { status: 400 });
+  }
 
   try {
-    const lrc = await transcribeYoutube(sourceUrl);
+    const lrc = await transcribeYoutube(source.url);
     const analyzed = await analyzeLyrics({
       lyrics: lrc,
       title: song.title,
       artist: song.artist,
-      youtubeUrl: song.analyzed.youtubeUrl,
+      youtubeUrl: source.kind === "youtube" ? source.url : "",
     });
-    const ok = updateSongLyrics(id, lrc, analyzed);
+    Object.assign(analyzed, sourceFields(source), { originalArtist: song.originalArtist });
+    const ok = updateSongLyrics(id, lrc, analyzed, song.updatedAt);
     if (!ok) {
-      return Response.json({ error: "更新数据库失败" }, { status: 500 });
+      return Response.json({ error: "转录期间歌曲已被修改，请刷新后重试；未覆盖已有内容" }, { status: 409 });
     }
     return Response.json({
       ok: true,

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { getDb } from "./db";
 import { extractYoutubeId } from "./youtube";
 import { trashPracticeFiles } from "./practice";
+import type Database from "better-sqlite3";
 import type { AnalyzedSong, SongMeta, SongFull, SongSource } from "@/types/lyrics";
 
 type SongListRow = {
@@ -28,6 +29,7 @@ type SongDetailRow = SongListRow & {
   lyrics: string;
   analyzed: string;
   youtube_url: string;
+  updated_at: number;
 };
 
 function parseAnalyzed(raw: string, id: string): AnalyzedSong | null {
@@ -112,11 +114,11 @@ export function listSongs(): SongMeta[] {
   }));
 }
 
-export function getSong(id: string): SongFull | null {
-  const row = getDb()
+export function getSong(id: string, database: Database.Database = getDb()): SongFull | null {
+  const row = database
     .prepare(
       `SELECT id, title, artist, original_artist, lyrics, analyzed, lines_count,
-              youtube_url, youtube_id, source, duration_sec, created_at
+              youtube_url, youtube_id, source, duration_sec, created_at, updated_at
        FROM songs WHERE id = ?`
     )
     .get(id) as SongDetailRow | undefined;
@@ -125,8 +127,8 @@ export function getSong(id: string): SongFull | null {
   const analyzed = parseAnalyzed(row.analyzed, row.id);
   if (!analyzed) return null;
 
-  analyzed.youtubeUrl = analyzed.youtubeUrl || row.youtube_url;
-  analyzed.youtubeId = analyzed.youtubeId || row.youtube_id;
+  analyzed.youtubeUrl = row.youtube_url;
+  analyzed.youtubeId = row.youtube_id;
 
   return {
     id: row.id,
@@ -136,6 +138,7 @@ export function getSong(id: string): SongFull | null {
     lyrics: row.lyrics,
     linesCount: row.lines_count,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     youtubeId: row.youtube_id,
     source: row.source,
     durationSec: row.duration_sec,
@@ -169,16 +172,39 @@ export function deleteSongs(ids: string[]): number {
 export function updateSongLyrics(
   id: string,
   lyrics: string,
-  analyzed: AnalyzedSong
+  analyzed: AnalyzedSong,
+  expectedUpdatedAt: number,
+  database: Database.Database = getDb()
 ): boolean {
-  const result = getDb()
+  const youtubeUrl = analyzed.youtubeUrl;
+  const youtubeId = extractYoutubeId(youtubeUrl);
+  const result = database
     .prepare(
       `UPDATE songs
-         SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?
-         WHERE id = ?`
+         SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?,
+             duration_sec = CASE WHEN youtube_url = ? THEN duration_sec ELSE 0 END,
+             youtube_url = ?, youtube_id = ?
+         WHERE id = ? AND updated_at = ?`
     )
-    .run(lyrics, JSON.stringify(analyzed), analyzed.lines.length, Date.now(), id);
+    .run(
+      lyrics, JSON.stringify({ ...analyzed, youtubeId }), analyzed.lines.length,
+      Math.max(Date.now(), expectedUpdatedAt + 1), youtubeUrl, youtubeUrl, youtubeId,
+      id, expectedUpdatedAt
+    );
   return result.changes > 0;
+}
+
+export function updateSongSource(
+  id: string,
+  youtubeUrl: string,
+  expectedUpdatedAt: number,
+  database: Database.Database = getDb()
+): boolean {
+  const song = getSong(id, database);
+  if (!song || song.updatedAt !== expectedUpdatedAt) return false;
+  return updateSongLyrics(id, song.lyrics, {
+    ...song.analyzed, youtubeUrl, youtubeId: extractYoutubeId(youtubeUrl),
+  }, expectedUpdatedAt, database);
 }
 
 export function existsByYoutubeId(youtubeId: string): boolean {

@@ -44,6 +44,7 @@ function buildYtDlpArgs(
   extraArgs: string[] = []
 ): string[] {
   const args = ["run", "yt-dlp"];
+  if (kind === "youtube") args.push("--js-runtimes", `node:${process.execPath}`);
   if (kind === "youtube" && YOUTUBE_COOKIES_PATH) {
     args.push("--cookies", YOUTUBE_COOKIES_PATH);
   } else if (kind === "bilibili") {
@@ -60,28 +61,77 @@ function buildYtDlpArgs(
   return args;
 }
 
-function runYtDlp(args: string[]): Promise<void> {
+export class AudioDownloadError extends Error {
+  constructor(message: string, public readonly reason: "failed" | "timeout" | "limit" = "failed") {
+    super(message);
+    this.name = "AudioDownloadError";
+  }
+}
+
+export type DownloadAudioOptions = {
+  maxBytes?: number;
+  maxDurationSec?: number;
+  timeoutMs?: number;
+};
+
+function runYtDlp(args: string[], timeoutMs?: number, maxBytes?: number, outputPath?: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn("uv", args, {
       shell: false,
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         PYTHONIOENCODING: "utf-8",
         PYTHONUTF8: "1",
       },
     });
-    let stderr = "";
-    proc.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    let failure: AudioDownloadError | null = null;
+    const stop = (error: AudioDownloadError) => {
+      if (failure) return;
+      failure = error;
+      try {
+        if (proc.pid && process.platform !== "win32") process.kill(-proc.pid, "SIGKILL");
+        else proc.kill("SIGKILL");
+      } catch {
+        proc.kill("SIGKILL");
+      }
+    };
+    const timeout = timeoutMs === undefined ? undefined : setTimeout(
+      () => stop(new AudioDownloadError("音频下载超时，请稍后重试或上传音频文件", "timeout")),
+      timeoutMs
+    );
+    const sizeCheck = maxBytes && outputPath ? setInterval(async () => {
+      try {
+        const entries = await fs.readdir(path.dirname(outputPath), { withFileTypes: true });
+        let total = 0;
+        for (const entry of entries) {
+          if (entry.isFile()) total += (await fs.stat(path.join(path.dirname(outputPath), entry.name))).size;
+        }
+        if (total > maxBytes) stop(new AudioDownloadError("音频超过 100 MiB 上限，请上传较短音频", "limit"));
+      } catch {
+        // The output directory may have just been cleaned after the process exited.
+      }
+    }, 250) : undefined;
+    const clear = () => {
+      clearTimeout(timeout);
+      clearInterval(sizeCheck);
+    };
+    proc.stdout?.resume();
+    proc.stderr.resume();
     proc.on("error", (err) => {
+      clear();
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        reject(new Error("[yt-dlp] uv 未找到，请先安装 uv"));
+        reject(new AudioDownloadError("下载工具不可用，请上传音频文件"));
       } else {
-        reject(err);
+        reject(new AudioDownloadError("音频下载失败，请上传音频文件"));
       }
     });
     proc.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(`[yt-dlp] 下载失败 (exit ${code}):\n${stderr}`));
+      clear();
+      if (failure) {
+        reject(failure);
+      } else if (code !== 0) {
+        reject(new AudioDownloadError("来源暂时无法下载，可能需要登录或受平台限制；可改为上传音频文件"));
       } else {
         resolve();
       }
@@ -89,7 +139,7 @@ function runYtDlp(args: string[]): Promise<void> {
   });
 }
 
-export async function downloadAudio(sourceUrl: string): Promise<string> {
+export async function downloadAudio(sourceUrl: string, options: DownloadAudioOptions = {}): Promise<string> {
   const src = detectSource(sourceUrl);
   const kind: SourceKind = src?.kind ?? "youtube";
   const resolvedUrl = src?.url ?? sourceUrl;
@@ -97,37 +147,43 @@ export async function downloadAudio(sourceUrl: string): Promise<string> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "utahon-audio-"));
   const outputPath = path.join(tmpDir, "audio.m4a");
 
-  const firstArgs = buildYtDlpArgs(kind, outputPath, resolvedUrl);
+  const deadline = options.timeoutMs === undefined ? undefined : Date.now() + options.timeoutMs;
+  const limits = ["--no-playlist", "--no-progress", "--socket-timeout", "15", "--retries", "1", "--fragment-retries", "1"];
+  if (options.maxBytes) limits.push("--max-filesize", String(options.maxBytes));
+  if (options.maxDurationSec) limits.push("--match-filters", `duration <= ${options.maxDurationSec}`);
+  const run = (extra: string[] = []) => {
+    const remaining = deadline === undefined ? undefined : deadline - Date.now();
+    if (remaining !== undefined && remaining <= 0) {
+      throw new AudioDownloadError("音频下载超时，请稍后重试或上传音频文件", "timeout");
+    }
+    return runYtDlp(buildYtDlpArgs(kind, outputPath, resolvedUrl, [...limits, ...extra]), remaining, options.maxBytes, outputPath);
+  };
 
   try {
-    await runYtDlp(firstArgs);
-  } catch (firstErr) {
-    // YouTube only: retry with ios player_client as fallback
-    if (kind !== "youtube") {
-      throw firstErr;
-    }
-    const fallbackArgs = buildYtDlpArgs(kind, outputPath, resolvedUrl, [
-      "--extractor-args", "youtube:player_client=ios",
-    ]);
     try {
-      await runYtDlp(fallbackArgs);
-    } catch (fallbackErr) {
-      // surface the fallback error which includes the ios attempt stderr
-      throw fallbackErr;
+      await run();
+    } catch (firstErr) {
+      if (kind !== "youtube" || (firstErr instanceof AudioDownloadError && firstErr.reason !== "failed")) {
+        throw firstErr;
+      }
+      await run(["--extractor-args", "youtube:player_client=ios"]);
     }
-  }
-
-  try {
-    const stat = await fs.stat(outputPath);
-    if (stat.size === 0) {
-      throw new Error("[yt-dlp] 完成但音频文件为空");
+    try {
+      const stat = await fs.stat(outputPath);
+      if (stat.size === 0) throw new AudioDownloadError("下载的音频为空，请上传音频文件");
+      if (options.maxBytes && stat.size > options.maxBytes) {
+        throw new AudioDownloadError("音频超过 100 MiB 上限，请上传较短音频", "limit");
+      }
+      return outputPath;
+    } catch (statErr) {
+      if ((statErr as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new AudioDownloadError("来源没有提供可下载音频，或超过大小/时长限制；可改为上传音频文件");
+      }
+      throw statErr;
     }
-    return outputPath;
-  } catch (statErr) {
-    if ((statErr as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error("[yt-dlp] 完成但找不到输出文件");
-    }
-    throw statErr;
+  } catch (error) {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -194,8 +250,7 @@ export async function transcribeYoutube(sourceUrl: string): Promise<string> {
     return await transcribeAudio(audioPath);
   } finally {
     try {
-      await fs.unlink(audioPath);
-      await fs.rmdir(path.dirname(audioPath));
+      await fs.rm(path.dirname(audioPath), { recursive: true, force: true });
     } catch {
       // ignore cleanup errors — temp dir
     }

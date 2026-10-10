@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
+  Copy,
   Download,
   Gauge,
   Guitar,
@@ -125,20 +127,61 @@ export function PracticeStudio({
   title,
   artist,
   lines,
+  sourceUrl,
+  songUpdatedAt,
 }: {
   title: string;
   artist: string;
   lines: AnalyzedLine[];
+  sourceUrl: string;
+  songUpdatedAt: number;
 }) {
-  const { practice, saving, saveData, uploadAudio } = usePractice();
+  const { practice, saving, saveData, uploadAudio, downloadSourceAudio, refreshPractice } = usePractice();
+  const router = useRouter();
   const player = usePlayer();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [draft, setDraft] = useState(practice.data);
+  const commandInput = useRef<HTMLTextAreaElement>(null);
+  const sourceRequest = useRef(false);
+  const selectLocalAfterRefresh = useRef<number | null>(null);
+  const [sourceDraft, setSourceDraft] = useState<{ base: string; value: string } | null>(null);
+  const sourceInput = sourceDraft?.base === sourceUrl ? sourceDraft.value : sourceUrl;
+  const [downloading, setDownloading] = useState(false);
+  const [copyNotice, setCopyNotice] = useState("");
+  const [draftState, setDraftState] = useState<{ data: PracticeDataV1; updatedAt: number } | null>(null);
+  const draft = draftState?.data ?? practice.data;
+  const hasNewResults = draftState !== null && practice.updatedAt !== draftState.updatedAt;
   const [editing, setEditing] = useState(false);
   const [loopStart, setLoopStart] = useState<number | null>(null);
   const [loopEnd, setLoopEnd] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const analysisCommand = `cd /Users/boring/Code/Workstation/utahon/audio-worker && uv run --no-sync python utahon_analyze.py --song '${practice.songId.replaceAll("'", "'\\''")}'`;
+
+  useEffect(() => {
+    if (selectLocalAfterRefresh.current !== null && songUpdatedAt !== selectLocalAfterRefresh.current) {
+      selectLocalAfterRefresh.current = null;
+      player?.selectSource("local");
+    }
+  }, [songUpdatedAt, player]);
+
+  function setDraft(update: (current: PracticeDataV1) => PracticeDataV1): void {
+    setDraftState((current) => ({
+      data: update(current?.data ?? practice.data),
+      updatedAt: current?.updatedAt ?? practice.updatedAt,
+    }));
+  }
+
+  async function handleRefresh(): Promise<void> {
+    if (draftState && !window.confirm("载入最新结果会放弃未保存的练习修改，继续吗？")) return;
+    try {
+      await refreshPractice();
+      setDraftState((current) => current === draftState ? null : current);
+      setError("");
+      setNotice("已载入最新练习数据");
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "刷新失败");
+    }
+  }
 
   const rates = useMemo(
     () => Array.from(new Set(player?.availableRates ?? [0.5, 0.75, 1])).sort((a, b) => a - b),
@@ -168,8 +211,8 @@ export function PracticeStudio({
     setError("");
     try {
       const anchored = { ...draft, chords: anchorChordsToLines(draft.chords, lines) };
-      const next = await saveData(anchored);
-      setDraft(next.data);
+      await saveData(anchored, draftState?.updatedAt ?? practice.updatedAt);
+      setDraftState(null);
       setNotice("练习设置已保存");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "保存失败");
@@ -178,16 +221,67 @@ export function PracticeStudio({
 
   async function handleUpload(file: File | undefined): Promise<void> {
     if (!file) return;
+    if (draftState && !window.confirm("上传音频会放弃未保存的练习修改，继续吗？")) {
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
     setNotice("");
     setError("");
     try {
-      const next = await uploadAudio(file);
-      setDraft(next.data);
-      setNotice("音频已保存，可以立即慢放和循环；自动分析可在 Mac 上运行。 ");
+      await uploadAudio(file);
+      player?.selectSource("local");
+      setDraftState(null);
+      setNotice("音频已保存，可以立即慢放和循环；如需和弦与分轨，请在 Mac 手工运行下方命令。");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "音频上传失败");
     } finally {
       if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  async function handleSourceDownload(): Promise<void> {
+    if (sourceRequest.current || saving) return;
+    if (!sourceInput.trim()) {
+      setError("请填写这首歌的 YouTube 链接、视频 ID 或 BV 号；也可以上传音频。");
+      setNotice("");
+      return;
+    }
+    if (draftState && !window.confirm("取得新音频成功后会放弃未保存的练习修改，继续吗？失败时草稿仍会保留。")) return;
+    if (practice.hasAudio && !window.confirm("替换练习音频，并清除不再匹配的自动和弦和分轨；人工修改会尽量保留。请确认与歌词是同一录音版本，继续吗？")) return;
+    sourceRequest.current = true;
+    setDownloading(true);
+    setNotice("");
+    setError("");
+    try {
+      await downloadSourceAudio({
+        sourceInput: sourceInput.trim(),
+        songUpdatedAt,
+        baseUpdatedAt: practice.updatedAt,
+        replaceExisting: practice.hasAudio,
+      });
+      player?.selectSource("local");
+      selectLocalAfterRefresh.current = songUpdatedAt;
+      setDraftState(null);
+      setSourceDraft(null);
+      setNotice("音频已保存，已切到练习音频，可以慢放和循环。再在 Mac 运行下方命令分析，和弦与分轨会自动同步回来。");
+      router.refresh();
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "取得音频失败");
+      router.refresh();
+    } finally {
+      sourceRequest.current = false;
+      setDownloading(false);
+    }
+  }
+
+  async function copyAnalysisCommand(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(analysisCommand);
+      setCopyNotice("已复制，在这台 Mac 的终端粘贴运行即可。");
+    } catch {
+      commandInput.current?.focus();
+      commandInput.current?.select();
+      setCopyNotice("浏览器未允许复制，已选中命令；请手动复制。");
     }
   }
 
@@ -251,10 +345,10 @@ export function PracticeStudio({
             弹唱练习台
           </h2>
           <p className="font-serif text-[13px] md:text-[14px] text-ink-soft mt-2">
-            上传自己的音频，慢放不变调；划 A/B、循环段落，并把自动和弦改成顺手的按法。
+            从歌曲视频取得音频，或上传自己的版本；慢放不变调、划 A/B 循环，再按需生成和弦与分轨。
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
             ref={fileInput}
             type="file"
@@ -267,7 +361,7 @@ export function PracticeStudio({
             disabled={saving}
             icon={saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
           >
-            {practice.hasAudio ? "Replace audio" : "Upload audio"}
+            {practice.hasAudio ? "替换音频文件" : "上传音频文件"}
           </TextPill>
           <TextPill
             onClick={() => setEditing((value) => !value)}
@@ -278,6 +372,60 @@ export function PracticeStudio({
           </TextPill>
         </div>
       </div>
+
+      <form
+        className="mt-4 border border-rule bg-paper-deep/35 p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSourceDownload();
+        }}
+      >
+        <label htmlFor={`practice-source-${practice.songId}`} className="font-serif text-[15px] text-ink">
+          从视频取得音频
+        </label>
+        <p className="mt-1 font-serif text-[13px] text-ink-soft leading-relaxed">
+          {sourceUrl
+            ? "已填入这首歌的来源，也可以换成同一录音版本的 YouTube / Bilibili 视频。"
+            : "这首歌还没有视频来源。补充 YouTube / Bilibili 链接或视频 ID，即可取得音频，无需先下载到电脑。"}
+          歌名或音乐平台分享链接不能直接用于下载；来源无法下载时仍可上传文件。
+        </p>
+        <div className="mt-3 flex flex-col sm:flex-row gap-2">
+          <input
+            id={`practice-source-${practice.songId}`}
+            value={sourceInput}
+            onChange={(event) => setSourceDraft({ base: sourceUrl, value: event.target.value })}
+            disabled={saving || downloading}
+            placeholder="YouTube 链接 / 视频 ID / BV 号"
+            autoComplete="off"
+            className="w-full min-w-0 flex-1 border border-rule bg-paper px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-ink disabled:opacity-60"
+          />
+          <TextPill
+            type="submit"
+            tone="solid"
+            disabled={saving || downloading}
+            className="justify-center shrink-0"
+            icon={downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+          >
+            {downloading ? "正在取得音频…" : "从视频取得音频"}
+          </TextPill>
+        </div>
+        <p role="status" className="mt-2 font-serif text-[12px] text-ink-soft leading-relaxed">
+          {downloading
+            ? "VPS 正在下载并检查音频，完成后才替换旧文件。请稍候，不要重复提交；此步骤不会启动 Mac 分析。"
+            : "取得音频 → 可立即慢放 / 循环 → 在 Mac 按需运行分析 → 和弦 / 分轨自动传回。请确认音频与歌词是同一版本。"}
+        </p>
+        {error || notice ? (
+          <p role={error ? "alert" : "status"} className={cn("mt-2 font-serif text-[13px]", error ? "text-red" : "text-ink-soft")}>
+            {error || notice}
+          </p>
+        ) : null}
+      </form>
+
+      {hasNewResults ? (
+        <p role="status" className="mt-3 font-serif text-[13px] text-red">
+          已有新的练习数据。你的未保存修改仍保留，不能直接覆盖新结果；请先导出 ChordPro 或记下修改，再载入最新结果。
+        </p>
+      ) : null}
 
       <div className="mt-5 grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
         <div className="border border-rule bg-paper-deep/35 p-4">
@@ -371,15 +519,38 @@ export function PracticeStudio({
           )}
           <div className="mt-4 pt-3 border-t border-rule font-serif text-[12px] text-ink-soft leading-relaxed">
             {practice.status === "pending"
-              ? "音频已就绪，等待 M5 Mac 生成可编辑和弦草稿。"
+              ? "音频已就绪。服务器不会自动分析；请在 Mac 手工运行下方命令。"
               : practice.status === "failed"
                 ? `上次分析失败：${practice.lastError}`
                 : practice.status === "ready"
-                  ? `分析完成 · ${draft.chords.length} 个和弦 · ${draft.sections.length} 个段落`
+                  ? `分析完成 · ${practice.data.chords.length} 个和弦 · ${practice.data.sections.length} 个段落`
                   : practice.hasAudio
                     ? "音频可以练习；尚未分析和弦。"
-                    : "YouTube 可以先慢放和循环；上传自己的音频后可保留练习版本。"}
+                    : "YouTube 可以先慢放和循环；从视频取得音频或上传文件后，即可生成练习材料。"}
           </div>
+          {practice.hasAudio ? (
+            <div className="mt-3 text-[12px] text-ink-soft">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-serif text-[14px] text-ink">在 Mac 按需生成和弦与分轨</span>
+                <TextPill size="sm" onClick={() => void copyAnalysisCommand()} icon={<Copy className="w-3 h-3" />}>复制命令</TextPill>
+              </div>
+              <p className="mt-2">在这台 Mac 的终端运行以下命令（首次使用需先按 README 安装依赖）。完成后自动同步到本页；未保存修改会保留。</p>
+              <textarea
+                ref={commandInput}
+                readOnly
+                rows={4}
+                aria-label="Mac 分析命令"
+                value={analysisCommand}
+                spellCheck={false}
+                className="mt-2 w-full min-w-0 resize-y border border-rule bg-paper p-2 font-mono text-[11px] break-all outline-none focus:border-ink"
+              />
+              {copyNotice ? <p role="status" className="mt-1">{copyNotice}</p> : null}
+              <p className="mt-2">只生成和弦可追加 --phase chords。自动结果是待校对草稿，不是准确六线谱。</p>
+            </div>
+          ) : null}
+          <button type="button" disabled={saving} onClick={() => void handleRefresh()} className="mt-3 text-[12px] underline underline-offset-4 disabled:opacity-50">
+            载入最新练习数据
+          </button>
         </div>
       </div>
 
@@ -444,7 +615,7 @@ export function PracticeStudio({
       ) : null}
 
       {editing ? (
-        <div className="mt-4 border border-ink p-4 md:p-5">
+        <fieldset disabled={saving} className="mt-4 min-w-0 border border-ink p-4 md:p-5 disabled:opacity-70">
           <div className="flex flex-wrap justify-between items-center gap-3">
             <div>
               <Smallcaps tone="ink">Editable practice sheet</Smallcaps>
@@ -491,13 +662,13 @@ export function PracticeStudio({
             </div>
           </div>
 
-          <div className="mt-5 grid xl:grid-cols-2 gap-5">
-            <div>
+          <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div className="min-w-0">
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-ink">
                 <Smallcaps tone="ink">Chords · {draft.chords.length}</Smallcaps>
                 <TextPill size="sm" onClick={addChord} icon={<Plus className="w-3 h-3" />}>Current time</TextPill>
               </div>
-              <div className="max-h-[360px] scroll-y">
+              <div className="max-h-[360px] scroll-y" style={{ overflowX: "auto" }}>
                 {draft.chords.map((chord) => (
                   <div key={chord.id} className="grid grid-cols-[minmax(70px,1fr)_72px_72px_32px] gap-2 py-2 border-b border-rule items-end">
                     <label className="grid gap-1">
@@ -532,12 +703,12 @@ export function PracticeStudio({
               </div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-ink">
                 <Smallcaps tone="ink">Sections · {draft.sections.length}</Smallcaps>
                 <TextPill size="sm" onClick={addSection} icon={<Plus className="w-3 h-3" />}>A/B range</TextPill>
               </div>
-              <div className="max-h-[360px] scroll-y">
+              <div className="max-h-[360px] scroll-y" style={{ overflowX: "auto" }}>
                 {draft.sections.map((section) => (
                   <div key={section.id} className="grid grid-cols-[88px_minmax(80px,1fr)_68px_68px_32px] gap-2 py-2 border-b border-rule items-end">
                     <label className="grid gap-1">
@@ -588,7 +759,7 @@ export function PracticeStudio({
               Save sheet
             </TextPill>
           </div>
-        </div>
+        </fieldset>
       ) : notice || error ? (
         <p className={cn("font-serif text-[13px] mt-3", error ? "text-red" : "text-ink-soft")}>{error || notice}</p>
       ) : null}

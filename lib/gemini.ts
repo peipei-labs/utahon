@@ -1,6 +1,8 @@
 import { SchemaType, type Schema } from "@google/generative-ai";
 import { getGeminiModel } from "@/lib/gemini-client";
 import type { ParsedLine, AnalyzedLine } from "@/types/lyrics";
+import { validateAnalyzedLines } from "./lyrics-validation";
+import { parseModelJson } from "./model-json";
 
 const PRIMARY_MODEL =
   process.env.GEMINI_ANALYZE_MODEL ??
@@ -44,6 +46,10 @@ const RESPONSE_SCHEMA: Schema = {
 };
 
 const SYSTEM_PROMPT = `你是日语歌词翻译与学习助手。翻译目标"信达雅"：准确（信）、通顺（达）、有美感（雅）。
+
+响应只能是一个合法 JSON 对象，结构严格为：
+{"lines":[{"original":"原文","translation":"中文翻译","tokens":[{"surface":"原文中的词","furigana":"かな","meaning":"中文释义","pos":"noun"}]}]}
+不要问候、前言、解释、Markdown、代码框或项目列表。lines 必须与输入逐行一一对应，保持行数与顺序，重复行也不得合并。输入行号仅用于区分，original 不包含行号。
 
 输入为一首日语歌的全部歌词行（按行分隔，每行一句）。请对每一行返回：
 1. original：原文（照抄）
@@ -146,20 +152,6 @@ export async function analyzeLines(
     }
   }
   const raw = result.response.text();
-  const parsed = JSON.parse(raw) as {
-    lines: Array<{
-      original: string;
-      translation: string;
-      tokens: Array<{ surface: string; furigana: string; meaning: string; pos: string }>;
-    }>;
-  };
-
-  return parsed.lines.map((line, i) => ({
-    original: line.original,
-    translation: line.translation,
-    romaji: "",
-    tokens: line.tokens.map((t) => ({ ...t, romaji: "" })),
-    startTime: lines[i]?.startTime ?? 0,
-    endTime: lines[i]?.endTime ?? 0,
-  }));
+  const parsed = parseModelJson(raw, result.response.candidates?.[0]?.finishReason);
+  return validateAnalyzedLines(parsed, lines);
 }

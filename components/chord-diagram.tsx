@@ -23,10 +23,10 @@ const database = guitarDb as unknown as {
 function databaseKey(root: string): string {
   const enharmonic: Record<string, string> = {
     Db: "C#",
-    Eb: "D#",
+    "D#": "Eb",
     Gb: "F#",
-    Ab: "G#",
-    Bb: "A#",
+    "G#": "Ab",
+    "A#": "Bb",
   };
   return (enharmonic[root] ?? root).replace("#", "sharp");
 }
@@ -43,20 +43,17 @@ function parseChord(symbol: string): { root: string; suffix: string } | null {
   if (!match) return null;
   const root = match[1];
   let suffix = match[2];
-  if (!suffix) suffix = "major";
+  if (!suffix || suffix === "maj") suffix = "major";
   else if (suffix === "m") suffix = "minor";
-  else if (suffix.startsWith("maj")) suffix = suffix;
   return { root, suffix };
 }
 
-function findPosition(symbol: string): ChordPosition | null {
+export function findPosition(symbol: string): ChordPosition | null {
   const parsed = parseChord(symbol);
   if (!parsed) return null;
   const choices = database.chords[databaseKey(parsed.root)] ?? [];
   const exact = choices.find((choice) => choice.suffix === parsed.suffix);
-  const fallbackSuffix = parsed.suffix.startsWith("m") ? "minor" : "major";
-  const fallback = choices.find((choice) => choice.suffix === fallbackSuffix);
-  return (exact ?? fallback)?.positions[0] ?? null;
+  return exact?.positions[0] ?? null;
 }
 
 export function ChordDiagram({ symbol }: { symbol: string }) {

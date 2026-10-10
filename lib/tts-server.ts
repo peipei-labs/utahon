@@ -1,8 +1,7 @@
 import "server-only";
 import { Communicate } from "edge-tts-universal";
 import { createHash } from "node:crypto";
-import { isServerVoice, isVoicevoxVoice, voicevoxSpeakerId } from "./tts-voices";
-import { isAzureConfigured, synthesizeAzureTts } from "./azure-tts";
+import { isServerVoice } from "./tts-voices";
 
 const CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const CACHE_MAX_ENTRIES = 300;
@@ -55,57 +54,35 @@ async function synthesizeMp3Internal(
   const communicate = new Communicate(text, {
     voice,
     rate: rateToPercent(rate),
+    connectionTimeout: 10_000,
   });
   const chunks: Buffer[] = [];
-  for await (const chunk of communicate.stream()) {
-    if (chunk.type === "audio" && chunk.data) {
-      chunks.push(Buffer.from(chunk.data));
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stream = communicate.stream();
+  const collect = async () => {
+    for await (const chunk of stream) {
+      if (expired) break;
+      if (chunk.type === "audio" && chunk.data) chunks.push(Buffer.from(chunk.data));
     }
-  }
-  const buf = Buffer.concat(chunks);
-  if (buf.byteLength === 0) throw new Error("Edge TTS 返回空音频");
-  return buf;
-}
-
-const VOICEVOX_URL = process.env.VOICEVOX_URL ?? "http://localhost:50021";
-
-async function synthesizeVoicevoxInternal(
-  text: string,
-  voice: string,
-  rate: number
-): Promise<Buffer> {
-  const speakerId = voicevoxSpeakerId(voice);
-  if (speakerId === null) throw new Error(`未知的 VOICEVOX 音色: ${voice}`);
-
-  let queryRes: Response;
+    const buf = Buffer.concat(chunks);
+    if (buf.byteLength === 0) throw new Error("在线发音未返回音频，请稍后重试或选择本机日语音色");
+    return buf;
+  };
   try {
-    queryRes = await fetch(
-      `${VOICEVOX_URL}/audio_query?speaker=${speakerId}&text=${encodeURIComponent(text)}`,
-      { method: "POST" }
-    );
-  } catch {
-    throw new Error("VOICEVOX 服务不可达");
+    return await Promise.race([
+      collect(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          expired = true;
+          reject(new Error("在线发音请求超时（15 秒），请稍后重试或选择本机日语音色"));
+        }, 15_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (expired) void stream.return().catch(() => {});
   }
-  if (!queryRes.ok) throw new Error(`VOICEVOX audio_query 失败: ${queryRes.status}`);
-
-  const query = (await queryRes.json()) as Record<string, unknown>;
-  query.speedScale = rate;
-
-  let synthRes: Response;
-  try {
-    synthRes = await fetch(`${VOICEVOX_URL}/synthesis?speaker=${speakerId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(query),
-    });
-  } catch {
-    throw new Error("VOICEVOX 服务不可达");
-  }
-  if (!synthRes.ok) throw new Error(`VOICEVOX synthesis 失败: ${synthRes.status}`);
-
-  const buf = Buffer.from(await synthRes.arrayBuffer());
-  if (buf.byteLength === 0) throw new Error("VOICEVOX 返回空音频");
-  return buf;
 }
 
 export function isKnownServerVoice(name: string): boolean {
@@ -122,26 +99,20 @@ export async function synthesizeAudio(
   voice: string,
   rate = 0.85
 ): Promise<SynthesisResult> {
+  if (!isKnownServerVoice(voice)) throw new Error("此在线音色已停用，请选择 Nanami 或 Keita");
   const key = cacheKey(text, voice, rate);
   const cached = cacheGet(key);
   if (cached) {
-    return { buf: cached, contentType: isVoicevoxVoice(voice) ? "audio/wav" : "audio/mpeg" };
+    return { buf: cached, contentType: "audio/mpeg" };
   }
 
   const existing = inflight.get(key);
   if (existing) return existing;
 
-  const contentType = isVoicevoxVoice(voice) ? "audio/wav" : "audio/mpeg";
+  const contentType = "audio/mpeg";
 
   const promise: Promise<SynthesisResult> = (async () => {
-    let buf: Buffer;
-    if (isVoicevoxVoice(voice)) {
-      buf = await synthesizeVoicevoxInternal(text, voice, rate);
-    } else if (isAzureConfigured()) {
-      buf = await synthesizeAzureTts(text, voice, rate);
-    } else {
-      buf = await synthesizeMp3Internal(text, voice, rate);
-    }
+    const buf = await synthesizeMp3Internal(text, voice, rate);
     cacheSet(key, buf);
     return { buf, contentType };
   })().finally(() => {

@@ -12,6 +12,8 @@ export type TrackMixSetting = {
 export type PlayerContextValue = {
   available: boolean;
   source: "local" | "youtube";
+  availableSources: Array<"local" | "youtube">;
+  selectSource: (source: "local" | "youtube") => void;
   currentTime: number;
   duration: number;
   playbackRate: number;

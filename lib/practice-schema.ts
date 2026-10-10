@@ -178,6 +178,8 @@ export function validatePracticeData(value: unknown, durationSec = 0): PracticeD
   if (!Array.isArray(raw.sections) || raw.sections.length > 200) throw new Error("段落列表无效");
   const chords = raw.chords.map((item) => validateChord(item, durationSec)).sort((a, b) => a.startTime - b.startTime);
   const sections = raw.sections.map((item) => validateSection(item, durationSec)).sort((a, b) => a.startTime - b.startTime);
+  if (new Set(chords.map((chord) => chord.id)).size !== chords.length) throw new Error("和弦 ID 不能重复");
+  if (new Set(sections.map((section) => section.id)).size !== sections.length) throw new Error("段落 ID 不能重复");
   const beats = Array.isArray(raw.beats)
     ? raw.beats.slice(0, 100000).map((item) => timeValue(item, "节拍时间", durationSec))
     : [];

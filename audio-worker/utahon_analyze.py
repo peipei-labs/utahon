@@ -176,7 +176,18 @@ def preserve_manual_events(
             for candidate in automatic
             if not (start <= (float(candidate["startTime"]) + float(candidate["endTime"])) / 2 < end)
         ]
-    return sorted([*automatic, *manual], key=lambda event: float(event.get("startTime", 0)))
+    # Keep edited IDs stable; a fresh automatic pass may reuse their old IDs.
+    used_ids: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for event in [*manual, *automatic]:
+        item = dict(event)
+        event_id = str(item.get("id", ""))
+        if not event_id or event_id in used_ids:
+            event_id = f"event-{uuid.uuid4()}"
+        item["id"] = event_id
+        used_ids.add(event_id)
+        unique.append(item)
+    return sorted(unique, key=lambda event: float(event.get("startTime", 0)))
 
 
 def analyze_chords(wav_path: Path, existing: list[dict[str, Any]]) -> list[dict[str, Any]]:

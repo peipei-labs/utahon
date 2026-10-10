@@ -10,27 +10,25 @@ import {
   setSelectedRate,
   listJapaneseVoices,
   speak,
-  DEFAULT_RATE,
   VALID_RATES,
   type SpeakHandle,
   type ValidRate,
 } from "@/lib/tts";
-import { SERVER_VOICES, VOICEVOX_VOICES } from "@/lib/tts-voices";
+import { SERVER_VOICES } from "@/lib/tts-voices";
 import { cn } from "@/lib/utils";
 import { IconButton } from "./editorial-interactive";
 import { Smallcaps } from "./editorial-shell";
 
 const PREVIEW_TEXT = "こんにちは、音色のプレビューです。";
-const AZURE_CONFIGURED = process.env.NEXT_PUBLIC_AZURE_CONFIGURED === "1";
 
 function formatRate(r: ValidRate): string {
   return Number.isInteger(r * 10) ? `${r.toFixed(1)}x` : `${r.toFixed(2)}x`;
 }
 
 export function VoicePicker() {
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [rate, setRate] = useState<ValidRate>(DEFAULT_RATE);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(listJapaneseVoices);
+  const [selected, setSelected] = useState<string | null>(getSelectedVoiceName);
+  const [rate, setRate] = useState<ValidRate>(() => getSelectedRate(getSelectedVoiceName()));
   const [open, setOpen] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -40,19 +38,16 @@ export function VoicePicker() {
     function load() {
       setVoices(listJapaneseVoices());
     }
-    load();
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.addEventListener("voiceschanged", load);
     }
-    const initialVoice = getSelectedVoiceName();
-    setSelected(initialVoice);
-    setRate(getSelectedRate(initialVoice));
     return () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.removeEventListener("voiceschanged", load);
       }
       // unmount 时取消进行中的 preview，避免 setState on unmounted
       previewHandleRef.current?.abort();
+      previewHandleRef.current = null;
     };
   }, []);
 
@@ -134,7 +129,7 @@ export function VoicePicker() {
             </div>
             <div className="max-h-80 overflow-y-auto mt-1 scroll-y">
               <VoiceItem
-                label="浏览器默认"
+                label="浏览器日语音色（自动选择）"
                 onClick={() => pick(null)}
                 active={!selected}
               />
@@ -150,7 +145,7 @@ export function VoicePicker() {
 
               <div className="mt-2 pt-2 border-t border-rule">
                 <Smallcaps tone="ink">
-                  {AZURE_CONFIGURED ? "在线 · Azure Neural（推荐）" : "在线 · Edge TTS（仅 Nanami/Keita）"}
+                  在线 · Edge TTS
                 </Smallcaps>
               </div>
               {SERVER_VOICES.map((v) => (
@@ -163,18 +158,6 @@ export function VoicePicker() {
                 />
               ))}
 
-              <div className="mt-2 pt-2 border-t border-rule">
-                <Smallcaps tone="ink">VOICEVOX 本地</Smallcaps>
-              </div>
-              {VOICEVOX_VOICES.map((v) => (
-                <VoiceItem
-                  key={v.name}
-                  label={v.label}
-                  sub={v.hint}
-                  onClick={() => pick(v.name)}
-                  active={selected === v.name}
-                />
-              ))}
             </div>
             <div className="pt-2 mt-1 border-t border-rule flex items-center justify-between gap-2">
               <Smallcaps tone="ink">速度</Smallcaps>

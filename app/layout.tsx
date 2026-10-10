@@ -6,6 +6,7 @@ import {
   Inter,
 } from "next/font/google";
 import { Providers } from "@/components/providers";
+import { TtsFeedback } from "@/components/tts-feedback";
 import "./globals.css";
 
 const cormorant = Cormorant_Garamond({
@@ -61,7 +62,10 @@ export default function RootLayout({
       className={`${cormorant.variable} ${notoSerifJp.variable} ${dmMono.variable} ${inter.variable} antialiased`}
     >
       <body className="min-h-screen bg-paper text-ink font-sans">
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <TtsFeedback />
+        </Providers>
       </body>
     </html>
   );
