@@ -170,7 +170,7 @@ function validateSection(value: unknown, durationSec: number): SongSection {
   };
 }
 
-export function validatePracticeData(value: unknown, durationSec = 0): PracticeDataV1 {
+export function validatePracticeData(value: unknown, durationSec = 0, repairStoredIds = false): PracticeDataV1 {
   if (!value || typeof value !== "object") throw new Error("练习数据格式错误");
   const raw = value as Record<string, unknown>;
   if (raw.version !== PRACTICE_DATA_VERSION) throw new Error("不支持的练习数据版本");
@@ -178,8 +178,19 @@ export function validatePracticeData(value: unknown, durationSec = 0): PracticeD
   if (!Array.isArray(raw.sections) || raw.sections.length > 200) throw new Error("段落列表无效");
   const chords = raw.chords.map((item) => validateChord(item, durationSec)).sort((a, b) => a.startTime - b.startTime);
   const sections = raw.sections.map((item) => validateSection(item, durationSec)).sort((a, b) => a.startTime - b.startTime);
-  if (new Set(chords.map((chord) => chord.id)).size !== chords.length) throw new Error("和弦 ID 不能重复");
-  if (new Set(sections.map((section) => section.id)).size !== sections.length) throw new Error("段落 ID 不能重复");
+  for (const events of [chords, sections]) {
+    const reserved = new Set(events.map((event) => event.id));
+    const seen = new Set<string>();
+    for (const [index, event] of events.entries()) {
+      if (seen.has(event.id)) {
+        if (!repairStoredIds) throw new Error("和弦或段落 ID 不能重复");
+        let suffix = 0;
+        do { event.id = `restored-${index}-${suffix++}`; } while (reserved.has(event.id));
+        reserved.add(event.id);
+      }
+      seen.add(event.id);
+    }
+  }
   const beats = Array.isArray(raw.beats)
     ? raw.beats.slice(0, 100000).map((item) => timeValue(item, "节拍时间", durationSec))
     : [];

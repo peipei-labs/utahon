@@ -92,6 +92,31 @@ test("practice saves use an atomic base version in an isolated database", async 
       assert.throws(() => importPracticeData(id, before.audioSha256, before.updatedAt, emptyPracticeData(20)), /避免覆盖/);
       assert.deepEqual(getPractice(id), saved);
     });
+
+    await t.test("replacement and legacy duplicate IDs preserve all manual content", () => {
+      const before = getPractice(id)!;
+      const manual = { ...emptyPracticeData(20), capo: 3 };
+      manual.chords = [{ id: "manual-chord", startTime: 1, endTime: 3, symbol: "C",
+        simplifiedSymbol: "C", source: "manual", edited: true }];
+      manual.sections[0] = { ...manual.sections[0], label: "verse", edited: true };
+      savePracticeData(id, manual, before.updatedAt);
+      const replaced = setPracticeAudio(id, "b".repeat(64), 20);
+      assert.equal(replaced.data.capo, 3);
+      assert.equal(replaced.data.chords.length, 1);
+      assert.equal(replaced.data.sections.length, 2);
+      assert.equal(replaced.data.sections.find((section) => section.label === "verse")!.id, manual.sections[0].id);
+      assert.equal(new Set(replaced.data.sections.map((section) => section.id)).size, 2);
+      const legacy = { ...manual, chords: [manual.chords[0], { ...manual.chords[0], startTime: 4, endTime: 6 }],
+        sections: [...emptyPracticeData(20).sections, ...manual.sections] };
+      db.prepare("UPDATE song_practice SET practice_json = ? WHERE song_id = ?").run(JSON.stringify(legacy), id);
+      const restored = getPractice(id)!;
+      assert.deepEqual(getPractice(id)!.data, restored.data, "read repair uses stable IDs");
+      assert.equal(restored.data.capo, 3);
+      assert.equal(restored.data.chords.length, 2);
+      assert.equal(restored.data.sections.length, 2);
+      const saved = savePracticeData(id, restored.data, restored.updatedAt);
+      assert.deepEqual(saved.data, restored.data);
+    });
   } finally {
     db.close();
     process.chdir(originalCwd);

@@ -14,9 +14,20 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
   const [mode, setMode] = useState<"lyrics" | "source" | null>(null);
   const [draftLyrics, setDraftLyrics] = useState(lyrics);
   const [draftSource, setDraftSource] = useState(youtubeUrl);
+  const [draftVersion, setDraftVersion] = useState(updatedAt);
   const [busy, setBusy] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+
+  function begin(nextMode: "lyrics" | "source") {
+    if (!mode) {
+      setDraftLyrics(lyrics);
+      setDraftSource(youtubeUrl);
+      setDraftVersion(updatedAt);
+    }
+    setMode(nextMode);
+    setError("");
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -28,8 +39,8 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
         method: mode === "lyrics" ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mode === "lyrics"
-          ? { lyrics: draftLyrics, updatedAt }
-          : { youtubeUrl: draftSource, updatedAt }),
+          ? { lyrics: draftLyrics, updatedAt: draftVersion }
+          : { youtubeUrl: draftSource, updatedAt: draftVersion }),
       });
       const result = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
       if (!response.ok || !result?.ok) throw new Error(result?.error || `保存失败 (${response.status})`);
@@ -48,15 +59,16 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
         歌词、读音和翻译可能由 AI 生成，未经人工逐句校对。格式检查不能保证内容准确；发现错误请纠正歌词后重新分析。
       </p>
       <div className="flex flex-wrap gap-2 mt-3">
-        <TextPill disabled={busy || pending} onClick={() => { setMode("lyrics"); setError(""); }}>
+        <TextPill disabled={busy || pending} onClick={() => begin("lyrics")}>
           纠错歌词
         </TextPill>
-        <TextPill disabled={busy || pending} onClick={() => { setMode("source"); setError(""); }}>
+        <TextPill disabled={busy || pending} onClick={() => begin("source")}>
           {youtubeUrl ? "修改播放来源" : "补充播放来源"}
         </TextPill>
       </div>
       {mode && (
         <form onSubmit={save} className="mt-4 space-y-3">
+          {draftVersion !== updatedAt && <p role="status" className="text-sm text-red">歌曲已更新，当前草稿仍保留。请先复制需要的内容，再取消并重新打开编辑。</p>}
           {mode === "lyrics" ? (
             <>
               <label className="block text-sm text-ink">

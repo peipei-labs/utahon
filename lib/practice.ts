@@ -53,7 +53,7 @@ export function songExists(songId: string): boolean {
 function parsePracticeJson(raw: string, durationSec: number): PracticeDataV1 {
   if (!raw) return emptyPracticeData(durationSec);
   try {
-    return validatePracticeData(JSON.parse(raw), durationSec);
+    return validatePracticeData(JSON.parse(raw), durationSec, true);
   } catch (error) {
     console.error("[utahon] invalid song_practice JSON:", error);
     return emptyPracticeData(durationSec);
@@ -110,6 +110,7 @@ function setPracticeAudioInTransaction(songId: string, sha256: string, durationS
   let data = current.data;
   if (current.audioSha256 !== sha256) {
     data = emptyPracticeData(durationSec);
+    if (data.sections[0]) data.sections[0].id = globalThis.crypto.randomUUID();
     data.capo = current.data.capo;
     data.chordDisplay = current.data.chordDisplay;
     data.chords = current.data.chords.filter(
@@ -127,6 +128,7 @@ function setPracticeAudioInTransaction(songId: string, sha256: string, durationS
           section.endTime <= durationSec
       )
     );
+    data = validatePracticeData(data, durationSec, true);
   }
   getDb()
     .prepare(

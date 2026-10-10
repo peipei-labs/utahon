@@ -159,7 +159,7 @@ export default async function SongPage({
           </div>
         </section>
 
-        <SongEditor key={song.updatedAt} songId={song.id} lyrics={song.lyrics}
+        <SongEditor key={song.id} songId={song.id} lyrics={song.lyrics}
           youtubeUrl={song.analyzed.youtubeUrl} updatedAt={song.updatedAt} />
         {song.analyzed.transcriptionSourceUrl?.includes("bilibili.com") && (
           <p className="mt-2 text-sm text-ink-soft">

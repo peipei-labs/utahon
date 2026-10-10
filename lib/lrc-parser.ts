@@ -9,13 +9,16 @@ function toSeconds(mm: string, ss: string, cs?: string): number {
 
 export function parseLRC(lrc: string): ParsedLine[] {
   const all: { time: number; text: string }[] = [];
-  for (const raw of lrc.split("\n")) {
+  for (const [index, raw] of lrc.split("\n").entries()) {
     let text = raw.trim();
     const times: number[] = [];
     let match: RegExpMatchArray | null;
     while ((match = text.match(TIMESTAMP_RE))) {
       times.push(toSeconds(match[1], match[2], match[3]));
       text = text.slice(match[0].length).trimStart();
+    }
+    if (!times.length && text && !/^\[(?:ar|al|ti|au|by|offset|re|ve|length):[^\]]*\]$/i.test(text)) {
+      throw new Error(`未检测到第 ${index + 1} 行的有效时间标签，请为每行歌词补齐时间，或全部改用普通文本`);
     }
     for (const time of new Set(times)) all.push({ time, text: text.trim() });
   }

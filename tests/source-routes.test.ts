@@ -49,6 +49,12 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
       analyzed: { title: "测试", artist: "Rin", youtubeUrl: "", youtubeId: "", lines: [] } });
     const ctx = { params: Promise.resolve({ id }) };
     const initial = getSong(id)!;
+    const mixed = await editLyrics(new Request("http://localhost/api/test", { method: "POST",
+      body: JSON.stringify({ lyrics: "[00:10]あ\nい\n[00:30]う", updatedAt: initial.updatedAt }),
+    }), ctx);
+    assert.equal(mixed.status, 502);
+    assert.match((await mixed.json()).error, /时间标签/);
+    assert.deepEqual(getSong(id), initial);
     const body = { lyrics: "[00:10]い", updatedAt: initial.updatedAt };
     const request = () => new Request("http://localhost/api/test", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

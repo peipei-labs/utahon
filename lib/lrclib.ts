@@ -30,7 +30,7 @@ export async function fetchLrclibLyrics(params: {
   const artist = params.artist.trim();
   if (!title) return null;
 
-  if (artist) {
+  if (artist && params.durationSec && params.durationSec > 0) {
     const direct = await tryGet(title, artist, params.durationSec);
     const matched = selectMatchingTrack(direct ? [direct] : [], params);
     if (matched) return pickLyrics(matched);

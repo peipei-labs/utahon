@@ -23,6 +23,11 @@ test("LRC simultaneous lines do not receive zero-length timing", () => {
   assert.deepEqual(parseLRC("[00:10]あ\n[00:10]い\n[00:20]う").map((line) => line.endTime), [20, 20, 24]);
 });
 
+test("mixed LRC never silently drops an untimed or invalid-timestamp lyric", () => {
+  assert.throws(() => parseLRC("[00:10]あ\nい\n[00:30]う"), /时间标签/);
+  assert.throws(() => parseLRC("[00:10]あ\n[00:70]い"), /时间标签/);
+});
+
 test("valid AI annotation keeps authoritative input timing", () => {
   const lines = validateAnalyzedLines({ lines: input.map((line) => annotated(line.text)) }, input);
   assert.deepEqual(lines.map((line) => line.startTime), [10, 20, 30]);
@@ -68,4 +73,14 @@ test("LRCLIB fallback does not accept the first unrelated search hit", async (t)
   assert.equal(result?.id, 2);
   assert.equal(requests.length, 2);
   assert.ok(requests[0].includes("duration=180"));
+});
+
+test("unknown duration cannot bypass recording ambiguity with a direct result", async (t) => {
+  const requests: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    requests.push(String(input));
+    return Response.json(String(input).includes("/get?") ? track() : [track(), track({ id: 2, duration: 220 })]);
+  });
+  assert.equal(await fetchLrclibLyrics({ title: "星の歌", artist: "Rin" }), null);
+  assert.ok(requests.some((url) => url.includes("/search?")));
 });

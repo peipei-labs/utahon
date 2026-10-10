@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -270,6 +271,15 @@ export function SongPlayerProvider({
       setElementVolume(audio, setting.muted || (anySolo && !setting.solo) ? 0 : setting.volume);
     }
   }, [trackMix, tracks]);
+
+  const restoreTrackPlayback = useEffectEvent(() => {
+    if (source !== "local") return;
+    for (const audio of localElements()) {
+      audio.currentTime = currentTime;
+      if (playing) void audio.play().catch(() => pause());
+    }
+  });
+  useEffect(() => { restoreTrackPlayback(); }, [tracks]);
 
   useEffect(() => {
     const youtube = youtubeRef.current;
