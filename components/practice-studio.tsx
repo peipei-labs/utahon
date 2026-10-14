@@ -230,8 +230,10 @@ export function PracticeStudio({
     try {
       await uploadAudio(file);
       player?.selectSource("local");
+      selectLocalAfterRefresh.current = songUpdatedAt;
       setDraftState(null);
       setNotice("音频已保存，可以立即慢放和循环；如需和弦与分轨，请在 Mac 手工运行下方命令。");
+      router.refresh();
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "音频上传失败");
     } finally {
