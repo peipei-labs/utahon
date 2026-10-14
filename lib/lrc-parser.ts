@@ -17,7 +17,7 @@ export function parseLRC(lrc: string): ParsedLine[] {
       times.push(toSeconds(match[1], match[2], match[3]));
       text = text.slice(match[0].length).trimStart();
     }
-    if (!times.length && text && !/^\[(?:ar|al|ti|au|by|offset|re|ve|length):[^\]]*\]$/i.test(text)) {
+    if (!times.length && text && !/^\[[a-z][a-z0-9_-]*:[^\]]*\]$/i.test(text)) {
       throw new Error(`未检测到第 ${index + 1} 行的有效时间标签，请为每行歌词补齐时间，或全部改用普通文本`);
     }
     for (const time of new Set(times)) all.push({ time, text: text.trim() });

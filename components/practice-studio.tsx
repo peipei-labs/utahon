@@ -247,7 +247,8 @@ export function PracticeStudio({
       return;
     }
     if (draftState && !window.confirm("取得新音频成功后会放弃未保存的练习修改，继续吗？失败时草稿仍会保留。")) return;
-    if (practice.hasAudio && !window.confirm("替换练习音频，并清除不再匹配的自动和弦和分轨；人工修改会尽量保留。请确认与歌词是同一录音版本，继续吗？")) return;
+    const replaceExisting = Boolean(practice.hasAudio || practice.audioSha256);
+    if (replaceExisting && !window.confirm("替换练习音频，并清除不再匹配的自动和弦和分轨；人工修改会尽量保留。请确认与歌词是同一录音版本，继续吗？")) return;
     sourceRequest.current = true;
     setDownloading(true);
     setNotice("");
@@ -257,7 +258,7 @@ export function PracticeStudio({
         sourceInput: sourceInput.trim(),
         songUpdatedAt,
         baseUpdatedAt: practice.updatedAt,
-        replaceExisting: practice.hasAudio,
+        replaceExisting,
       });
       player?.selectSource("local");
       selectLocalAfterRefresh.current = songUpdatedAt;

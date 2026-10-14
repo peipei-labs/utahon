@@ -156,6 +156,49 @@ test("source practice route downloads without AI and atomically preserves existi
       assert.equal(readFileSync(stemPath, "utf8"), "keep stem");
       assertClean();
     });
+    await t.test("confirmed re-download restores missing audio without resetting saved analysis", async () => {
+      for (const missing of ["mix", "directory"] as const) {
+        const id = makeSong();
+        const previous = installExisting(id, audio);
+        const ready = importPracticeData(id, previous.audioSha256, previous.updatedAt, { ...previous.data, capo: 4 });
+        const mix = practiceTrackPath(id, ready.audioSha256, "mix");
+        const stem = practiceTrackPath(id, ready.audioSha256, "vocals");
+        mkdirSync(path.dirname(stem), { recursive: true });
+        writeFileSync(stem, "keep stem");
+        rmSync(missing === "mix" ? mix : path.dirname(mix), { recursive: true });
+        assert.equal(getPractice(id)!.hasAudio, false);
+        assert.equal((await call(id, bodyFor(id))).status, 409);
+        const response = await call(id, { ...bodyFor(id), replaceExisting: true });
+        assert.equal(response.status, 200);
+        assert.deepEqual(getPractice(id), ready);
+        assert.equal((await response.json()).hasAudio, true);
+        assert.equal(readFileSync(mix, "utf8"), audio);
+        if (missing === "mix") assert.equal(readFileSync(stem, "utf8"), "keep stem");
+        assertClean();
+      }
+    });
+    await t.test("failed database save rolls back restored mix without removing existing stems", async () => {
+      const id = makeSong();
+      const previous = installExisting(id, audio);
+      const mix = practiceTrackPath(id, previous.audioSha256, "mix");
+      const stem = practiceTrackPath(id, previous.audioSha256, "vocals");
+      mkdirSync(path.dirname(stem), { recursive: true });
+      writeFileSync(stem, "keep stem");
+      rmSync(mix);
+      const before = getPractice(id);
+      const song = getSong(id);
+      db.exec("CREATE TRIGGER reject_source_save BEFORE UPDATE ON songs BEGIN SELECT RAISE(ABORT, 'test failure'); END");
+      try {
+        assert.equal((await call(id, { ...bodyFor(id), replaceExisting: true })).status, 502);
+        assert.ok(!existsSync(mix));
+        assert.equal(readFileSync(stem, "utf8"), "keep stem");
+        assert.deepEqual(getPractice(id), before);
+        assert.deepEqual(getSong(id), song);
+        assertClean();
+      } finally {
+        db.exec("DROP TRIGGER reject_source_save");
+      }
+    });
     await t.test("failed, oversized and overlong downloads do not change existing source or audio", async () => {
       const id = makeSong();
       const previous = installExisting(id);

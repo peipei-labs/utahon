@@ -72,9 +72,10 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
 
     mode = "valid";
     body.updatedAt = current.updatedAt;
+    body.lyrics = "[la:ja]\n[00:10]い";
     const saved = await editLyrics(request(), ctx);
     assert.equal(saved.status, 200);
-    assert.equal(getSong(id)!.lyrics, "[00:10]い");
+    assert.equal(getSong(id)!.lyrics, body.lyrics);
     assert.equal(getSong(id)!.analyzed.lines[0].startTime, 10);
     const sourceConflict = await editSource(new NextRequest("http://localhost/api/test", {
       method: "PATCH", body: JSON.stringify({ youtubeUrl: "KNXrHFvX1Gs", updatedAt: initial.updatedAt }),
@@ -105,11 +106,12 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(bvEdited.youtubeId, "");
 
     const downloads: string[] = [];
+    let downloadFails = false;
     t.mock.method(childProcess, "spawn", (_command: string, args: readonly string[]) => {
       downloads.push(args[args.length - 1]);
       writeFileSync(args[args.indexOf("-o") + 1], "offline audio fixture");
       const child = Object.assign(new EventEmitter(), { stderr: new PassThrough() });
-      queueMicrotask(() => child.emit("close", 0));
+      queueMicrotask(() => child.emit("close", downloadFails ? 1 : 0));
       return child as unknown as ChildProcess;
     });
     const sha = "a".repeat(64);
@@ -129,6 +131,18 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.deepEqual(downloads, [bvUrl]);
     assert.equal(getSong(bvId)!.analyzed.transcriptionSourceUrl, bvUrl);
     assert.equal(getSong(bvId)!.youtubeId, "");
+    downloadFails = true;
+    const fetchesBefore = t.mock.method(globalThis, "fetch", () => { throw new Error("Failed downloads must not call AI"); });
+    for (const sourceInput of [bvUrl, "dQw4w9WgXcQ"]) {
+      const before = getSong(bvId)!;
+      const failure = await retranscribe(new Request("http://localhost/api/test", { method: "POST",
+        body: JSON.stringify({ sourceInput, updatedAt: before.updatedAt, confirmLocalAudioSource: true }),
+      }), bvContext);
+      assert.equal(failure.status, 502);
+      assert.match((await failure.json()).error, /来源暂时无法下载/);
+      assert.deepEqual(getSong(bvId), before);
+    }
+    assert.equal(fetchesBefore.mock.callCount(), 0);
   } finally {
     closeDatabase?.();
     process.chdir(originalCwd);

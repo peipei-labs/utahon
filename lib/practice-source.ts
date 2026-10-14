@@ -75,6 +75,7 @@ export async function preparePracticeSource(
   let downloaded = "";
   let stagedDir = "";
   let installedDir = "";
+  let restoredMix = "";
   try {
     downloaded = await downloadAudio(source.url, {
       maxBytes: MAX_AUDIO_UPLOAD_BYTES,
@@ -91,10 +92,8 @@ export async function preparePracticeSource(
     const sha256 = await sha256File(normalized);
     const targetDir = practiceVersionDir(songId, sha256);
     const mixPath = path.join(targetDir, "mix.m4a");
-    if (fs.existsSync(targetDir)) {
-      if (!fs.existsSync(mixPath) || await sha256File(mixPath) !== sha256) {
-        throw new PracticeSourceError("已保存的同版音频文件不完整，本次下载未覆盖它；请检查原文件或上传另一音频", 502);
-      }
+    if (fs.existsSync(mixPath) && await sha256File(mixPath) !== sha256) {
+      throw new PracticeSourceError("已保存的同版音频文件不完整，本次下载未覆盖它；请检查原文件或上传另一音频", 502);
     }
     await mkdir(path.dirname(targetDir), { recursive: true });
     stagedDir = await mkdtemp(path.join(path.dirname(targetDir), ".source-"));
@@ -108,10 +107,11 @@ export async function preparePracticeSource(
         fs.renameSync(stagedDir, targetDir);
         installedDir = targetDir;
       } else if (!fs.existsSync(mixPath)) {
-        throw new PracticeSourceError("音频文件在下载期间发生变化，请刷新后重试", 409);
+        fs.linkSync(path.join(stagedDir, "mix.m4a"), mixPath);
+        restoredMix = mixPath;
       }
-      reused = practice.audioSha256 === sha256 && practice.hasAudio;
-      const next = reused ? practice : setPracticeAudio(songId, sha256, durationSec);
+      reused = practice.audioSha256 === sha256;
+      const next = reused ? getPractice(songId)! : setPracticeAudio(songId, sha256, durationSec);
       const updatedAt = Math.max(Date.now(), song.updatedAt + 1, next.updatedAt + 1);
       const fields = sourceFields(source);
       database.prepare(`UPDATE songs SET youtube_url = ?, youtube_id = ?, analyzed = ?,
@@ -122,12 +122,14 @@ export async function preparePracticeSource(
       return next;
     }).immediate();
     installedDir = "";
+    restoredMix = "";
     if (previousSha256 && previousSha256 !== sha256) {
       try { trashPracticeVersion(songId, previousSha256); }
       catch { console.error("[utahon] previous practice audio retained in place because archiving failed"); }
     }
     return { record, reused };
   } catch (error) {
+    if (restoredMix) fs.unlinkSync(restoredMix);
     if (installedDir) fs.renameSync(installedDir, stagedDir);
     if (error instanceof PracticeSourceError) throw error;
     if (error instanceof AudioDownloadError) {

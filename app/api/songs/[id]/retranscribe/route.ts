@@ -1,4 +1,4 @@
-import { transcribeYoutube } from "@/lib/transcribe";
+import { AudioDownloadError, transcribeYoutube } from "@/lib/transcribe";
 import { analyzeLyrics } from "@/lib/analyze-pipeline";
 import { isGeminiTimeoutError } from "@/lib/gemini-client";
 import { getSong, updateSongLyrics } from "@/lib/songs";
@@ -65,17 +65,12 @@ export async function POST(
     const msg = err instanceof Error ? err.message : "转录失败";
     let status = 500;
 
-    if (isGeminiTimeoutError(err)) {
+    if (err instanceof AudioDownloadError) {
+      status = err.reason === "timeout" ? 504 : err.reason === "limit" ? 400 : 502;
+    } else if (isGeminiTimeoutError(err)) {
       status = 504;
     } else if (msg.toLowerCase().includes("quota") || msg.includes("429")) {
       status = 429;
-    } else if (msg.startsWith("[yt-dlp]")) {
-      const lower = msg.toLowerCase();
-      if (lower.includes("uv 未找到")) status = 500;
-      else if (lower.includes("sign in") || lower.includes("bot")) status = 403;
-      else if (lower.includes("cookies")) status = 401;
-      else if (lower.includes("unavailable")) status = 404;
-      else status = 502;
     }
 
     return Response.json({ error: msg }, { status });

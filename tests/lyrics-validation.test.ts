@@ -23,6 +23,11 @@ test("LRC simultaneous lines do not receive zero-length timing", () => {
   assert.deepEqual(parseLRC("[00:10]あ\n[00:10]い\n[00:20]う").map((line) => line.endTime), [20, 20, 24]);
 });
 
+test("LRC language and extension metadata do not become lyrics or invalid timestamps", () => {
+  assert.deepEqual(parseLRC("[la:ja]\n[LA:ja]\n[x-editor:example]\n[00:01]あ"), parseLRC("[00:01]あ"));
+  assert.throws(() => parseLRC("[la:ja]\n[00:01]あ\n[00:70]い"), /时间标签/);
+});
+
 test("mixed LRC never silently drops an untimed or invalid-timestamp lyric", () => {
   assert.throws(() => parseLRC("[00:10]あ\nい\n[00:30]う"), /时间标签/);
   assert.throws(() => parseLRC("[00:10]あ\n[00:70]い"), /时间标签/);
