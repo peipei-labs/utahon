@@ -45,7 +45,8 @@ export function PracticeProvider({
   initialPractice: PracticeRecord;
   children: ReactNode;
 }) {
-  const [practice, setPractice] = useState(initialPractice);
+  const [localPractice, setPractice] = useState(initialPractice);
+  const practice = initialPractice.updatedAt > localPractice.updatedAt ? initialPractice : localPractice;
   const [saving, setSaving] = useState(false);
 
   const refreshPractice = useCallback(async () => {

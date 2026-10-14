@@ -4,6 +4,7 @@ import { extractYoutubeId } from "./youtube";
 import { trashPracticeFiles } from "./practice";
 import type Database from "better-sqlite3";
 import type { AnalyzedSong, SongMeta, SongFull, SongSource } from "@/types/lyrics";
+import type { PracticeDataV1 } from "@/types/practice";
 
 type SongListRow = {
   id: string;
@@ -176,6 +177,18 @@ export function updateSongLyrics(
   expectedUpdatedAt: number,
   database: Database.Database = getDb()
 ): boolean {
+  return database.transaction(() => updateSongLyricsInTransaction(id, lyrics, analyzed, expectedUpdatedAt, database)).immediate();
+}
+
+function updateSongLyricsInTransaction(
+  id: string,
+  lyrics: string,
+  analyzed: AnalyzedSong,
+  expectedUpdatedAt: number,
+  database: Database.Database
+): boolean {
+  const current = getSong(id, database);
+  if (!current || current.updatedAt !== expectedUpdatedAt) return false;
   const youtubeUrl = analyzed.youtubeUrl;
   const youtubeId = extractYoutubeId(youtubeUrl);
   const result = database
@@ -194,7 +207,27 @@ export function updateSongLyrics(
       Math.max(Date.now(), expectedUpdatedAt + 1), youtubeUrl, youtubeUrl, youtubeId,
       id, expectedUpdatedAt
     );
-  return result.changes > 0;
+  if (result.changes === 0) return false;
+  if (JSON.stringify(current.analyzed.lines) !== JSON.stringify(analyzed.lines)) {
+    const practice = database.prepare("SELECT practice_json, updated_at FROM song_practice WHERE song_id = ?")
+      .get(id) as { practice_json: string; updated_at: number } | undefined;
+    if (practice) {
+      let json = practice.practice_json;
+      if (json) {
+        const data = JSON.parse(json) as PracticeDataV1;
+        data.chords = data.chords.map((chord) => {
+          const next = { ...chord };
+          delete next.lineIndex;
+          delete next.tokenIndex;
+          return next;
+        });
+        json = JSON.stringify(data);
+      }
+      database.prepare("UPDATE song_practice SET practice_json = ?, updated_at = ? WHERE song_id = ?")
+        .run(json, Math.max(Date.now(), practice.updated_at + 1), id);
+    }
+  }
+  return true;
 }
 
 export function updateSongSource(

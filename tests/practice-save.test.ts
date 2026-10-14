@@ -117,6 +117,48 @@ test("practice saves use an atomic base version in an isolated database", async 
       const saved = savePracticeData(id, restored.data, restored.updatedAt);
       assert.deepEqual(saved.data, restored.data);
     });
+    await t.test("lyric replacements invalidate chord anchors atomically without losing practice edits", async () => {
+      const { createSong, getSong, updateSongLyrics, updateSongSource } = await import("../lib/songs");
+      const line = (original: string, startTime: number, endTime: number) => ({
+        original, startTime, endTime, translation: "", romaji: "", tokens: [],
+      });
+      const analyzed = { title: "Anchor fixture", artist: "Test", youtubeUrl: "", youtubeId: "",
+        lines: [line("あ", 0, 5), line("い", 10, 20)] };
+      const songId = createSong({ title: analyzed.title, artist: analyzed.artist, lyrics: "あ\nい", analyzed, durationSec: 20 });
+      const audio = setPracticeAudio(songId, "c".repeat(64), 20);
+      const before = savePracticeData(songId, { ...audio.data, capo: 3, chords: [
+        { id: "manual", symbol: "C", startTime: 12, endTime: 14, source: "manual", edited: true, lineIndex: 1, tokenIndex: 2 },
+        { id: "auto", symbol: "G", startTime: 16, endTime: 18, source: "auto", edited: false, lineIndex: 1, tokenIndex: 3 },
+      ] }, audio.updatedAt);
+      const oldSong = getSong(songId)!;
+      const corrected = { ...analyzed, lines: [analyzed.lines[0], line("う", 5, 10), analyzed.lines[1]] };
+      assert.equal(updateSongLyrics(songId, "あ\nう\nい", corrected, oldSong.updatedAt), true);
+      const after = getPractice(songId)!;
+      assert.ok(after.updatedAt > before.updatedAt);
+      assert.equal(after.audioSha256, before.audioSha256);
+      assert.equal(after.status, before.status);
+      const unanchored = before.data.chords.map((chord) => {
+        const next = { ...chord };
+        delete next.lineIndex;
+        delete next.tokenIndex;
+        return next;
+      });
+      assert.deepEqual(after.data, { ...before.data, chords: unanchored });
+      assert.equal(corrected.lines.findIndex((item) => after.data.chords[0].startTime >= item.startTime && after.data.chords[0].startTime < item.endTime), 2);
+      assert.throws(() => savePracticeData(songId, before.data, before.updatedAt), PracticeConflictError);
+      assert.throws(() => importPracticeData(songId, before.audioSha256, before.updatedAt, before.data), /避免覆盖/);
+      assert.equal(updateSongLyrics(songId, oldSong.lyrics, analyzed, oldSong.updatedAt), false);
+      assert.deepEqual(getPractice(songId), after);
+      assert.equal(updateSongSource(songId, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", getSong(songId)!.updatedAt), true);
+      assert.deepEqual(getPractice(songId), after, "source-only changes do not invalidate practice edits");
+      const beforeFailure = getSong(songId)!;
+      db.exec("CREATE TEMP TRIGGER reject_anchor_update BEFORE UPDATE ON song_practice BEGIN SELECT RAISE(ABORT, 'fixture failure'); END");
+      try {
+        assert.throws(() => updateSongLyrics(songId, oldSong.lyrics, analyzed, beforeFailure.updatedAt), /fixture failure/);
+        assert.deepEqual(getSong(songId), beforeFailure);
+        assert.deepEqual(getPractice(songId), after);
+      } finally { db.exec("DROP TRIGGER reject_anchor_update"); }
+    });
   } finally {
     db.close();
     process.chdir(originalCwd);
