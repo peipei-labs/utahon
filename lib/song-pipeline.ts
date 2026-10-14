@@ -58,6 +58,7 @@ export async function processSong(input: SongInput): Promise<SongOutcome> {
     const lrclib = await fetchLrclibLyrics({
       title: songName,
       artist: input.artist,
+      durationSec: input.video?.duration,
     });
 
     if (lrclib && existsByLrclibId(lrclib.id)) {
@@ -70,14 +71,14 @@ export async function processSong(input: SongInput): Promise<SongOutcome> {
       }
       const emptyAnalyzed: AnalyzedSong = {
         title: songName,
-        artist: "",
+        artist: input.artist,
         youtubeUrl,
         youtubeId: extractYoutubeId(youtubeUrl),
         lines: [],
       };
       const songId = createSong({
         title: songName,
-        artist: "",
+        artist: input.artist,
         lyrics: "",
         analyzed: emptyAnalyzed,
         youtubeUrl,
@@ -91,7 +92,7 @@ export async function processSong(input: SongInput): Promise<SongOutcome> {
     const rawUploader = input.video?.uploader?.trim() || "";
     const cleaned = stripTopic(rawUploader);
     const displayArtist =
-      input.source === "netease"
+      input.source === "netease" || input.source === "share"
         ? providedArtist || cleaned || rawUploader || lrclib.artistName
         : rawUploader || lrclib.artistName;
 

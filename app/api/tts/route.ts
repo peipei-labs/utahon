@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { isKnownServerVoice, synthesizeAudio } from "@/lib/tts-server";
-import { DEFAULT_SERVER_VOICE } from "@/lib/tts-voices";
+import { DEFAULT_SERVER_VOICE, isRetiredServerVoice } from "@/lib/tts-voices";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -18,6 +18,9 @@ export async function GET(request: NextRequest) {
   }
 
   const voice = sp.get("voice") ?? DEFAULT_SERVER_VOICE;
+  if (isRetiredServerVoice(voice)) {
+    return Response.json({ error: "此在线音色已停用，请选择 Nanami 或 Keita" }, { status: 400 });
+  }
   if (!isKnownServerVoice(voice)) {
     return Response.json({ error: "voice 不合法" }, { status: 400 });
   }
@@ -43,7 +46,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "TTS 合成失败";
+    const msg = err instanceof Error && err.message.startsWith("在线发音")
+      ? err.message
+      : "在线发音暂时不可用，请稍后重试或选择本机日语音色";
     return Response.json({ error: msg }, { status: 502 });
   }
 }

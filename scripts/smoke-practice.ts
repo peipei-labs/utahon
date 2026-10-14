@@ -114,7 +114,7 @@ async function main(): Promise<void> {
       await fetch(`${baseUrl}/api/songs/${songId}/practice`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: practice.data }),
+        body: JSON.stringify({ data: practice.data, baseUpdatedAt: practice.updatedAt }),
       })
     );
     assert(practice.data.chords[0].symbol === "Cmaj7", "和弦规范化失败");

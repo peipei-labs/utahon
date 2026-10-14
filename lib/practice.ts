@@ -53,7 +53,7 @@ export function songExists(songId: string): boolean {
 function parsePracticeJson(raw: string, durationSec: number): PracticeDataV1 {
   if (!raw) return emptyPracticeData(durationSec);
   try {
-    return validatePracticeData(JSON.parse(raw), durationSec);
+    return validatePracticeData(JSON.parse(raw), durationSec, true);
   } catch (error) {
     console.error("[utahon] invalid song_practice JSON:", error);
     return emptyPracticeData(durationSec);
@@ -97,14 +97,20 @@ export function getPractice(songId: string): PracticeRecord | null {
 }
 
 export function setPracticeAudio(songId: string, sha256: string, durationSec: number): PracticeRecord {
+  return getDb().transaction(() => setPracticeAudioInTransaction(songId, sha256, durationSec)).immediate();
+}
+
+function setPracticeAudioInTransaction(songId: string, sha256: string, durationSec: number): PracticeRecord {
   assertSafeSongId(songId);
   assertSafeSha256(sha256);
   const current = getPractice(songId);
   if (!current) throw new Error("歌曲不存在");
-  const now = nextUpdatedAt(current.updatedAt);
+  const song = getDb().prepare("SELECT updated_at FROM songs WHERE id = ?").get(songId) as { updated_at: number };
+  const now = nextUpdatedAt(Math.max(current.updatedAt, song.updated_at));
   let data = current.data;
   if (current.audioSha256 !== sha256) {
     data = emptyPracticeData(durationSec);
+    if (data.sections[0]) data.sections[0].id = globalThis.crypto.randomUUID();
     data.capo = current.data.capo;
     data.chordDisplay = current.data.chordDisplay;
     data.chords = current.data.chords.filter(
@@ -122,6 +128,7 @@ export function setPracticeAudio(songId: string, sha256: string, durationSec: nu
           section.endTime <= durationSec
       )
     );
+    data = validatePracticeData(data, durationSec, true);
   }
   getDb()
     .prepare(
@@ -142,23 +149,34 @@ export function setPracticeAudio(songId: string, sha256: string, durationSec: nu
   return getPractice(songId)!;
 }
 
-export function savePracticeData(songId: string, value: unknown): PracticeRecord {
+export class PracticeConflictError extends Error {
+  constructor() {
+    super("练习数据已更新，本次修改尚未保存。请先保留需要的修改，再载入最新分析结果。");
+    this.name = "PracticeConflictError";
+  }
+}
+
+export function savePracticeData(songId: string, value: unknown, expectedUpdatedAt: number): PracticeRecord {
+  if (!Number.isSafeInteger(expectedUpdatedAt) || expectedUpdatedAt < 0) {
+    throw new Error("缺少有效的练习数据版本，请刷新页面后重试");
+  }
   const current = getPractice(songId);
   if (!current) throw new Error("歌曲不存在");
+  if (current.updatedAt !== expectedUpdatedAt) throw new PracticeConflictError();
   const durationSec = songDuration(songId) ?? 0;
   const data = validatePracticeData(value, durationSec);
   const now = nextUpdatedAt(current.updatedAt);
-  getDb()
-    .prepare(
-      `INSERT INTO song_practice
-         (song_id, audio_sha256, status, practice_json, last_error, created_at, updated_at)
-       VALUES (?, '', 'none', ?, '', ?, ?)
-       ON CONFLICT(song_id) DO UPDATE SET
-         practice_json = excluded.practice_json,
-         last_error = '',
-         updated_at = excluded.updated_at`
-    )
-    .run(songId, JSON.stringify(data), now, now);
+  const result = expectedUpdatedAt === 0
+    ? getDb().prepare(
+        `INSERT INTO song_practice
+           (song_id, audio_sha256, status, practice_json, last_error, created_at, updated_at)
+         VALUES (?, '', 'none', ?, '', ?, ?) ON CONFLICT(song_id) DO NOTHING`
+      ).run(songId, JSON.stringify(data), now, now)
+    : getDb().prepare(
+        `UPDATE song_practice SET practice_json = ?, updated_at = ?
+         WHERE song_id = ? AND updated_at = ?`
+      ).run(JSON.stringify(data), now, songId, expectedUpdatedAt);
+  if (result.changes !== 1) throw new PracticeConflictError();
   return getPractice(songId)!;
 }
 

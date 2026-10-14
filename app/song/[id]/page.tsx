@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { VoicePicker } from "@/components/voice-picker";
 import { DeleteSongButton } from "@/components/delete-song-button";
 import { RetranscribeButton } from "@/components/retranscribe-button";
+import { SongEditor } from "@/components/song-editor";
 import {
   SongPlayerProvider,
   EditorialPlayerPlate,
@@ -84,7 +85,9 @@ export default async function SongPage({
           ← {` `}Utahon / Library
         </Link>
         <div className="flex items-center gap-2 shrink-0">
-          <RetranscribeButton songId={song.id} hasYoutube={Boolean(videoId)} />
+          <RetranscribeButton songId={song.id} updatedAt={song.updatedAt}
+            currentSourceUrl={song.analyzed.youtubeUrl || song.analyzed.transcriptionSourceUrl || ""}
+            hasPracticeAudio={practice.hasAudio} />
           <DeleteSongButton songId={song.id} songTitle={song.title} />
         </div>
       </div>
@@ -136,7 +139,7 @@ export default async function SongPage({
                 <div className="p-4 border border-dashed border-rule text-center">
                   <Smallcaps>No video attached</Smallcaps>
                   <div className="font-serif italic text-[14px] text-ink-soft mt-2 leading-[1.5]">
-                    没有关联音频 · 去别处听一听吧～
+                    没有可内嵌播放的 YouTube 来源。可在下方练习台从 YouTube / Bilibili 视频取得音频，或上传音频文件。
                   </div>
                   <div className="mt-3">
                     <ExternalAudioLinks
@@ -156,10 +159,21 @@ export default async function SongPage({
           </div>
         </section>
 
+        <SongEditor key={song.id} songId={song.id} lyrics={song.lyrics}
+          youtubeUrl={song.analyzed.youtubeUrl} updatedAt={song.updatedAt} />
+        {song.analyzed.transcriptionSourceUrl?.includes("bilibili.com") && (
+          <p className="mt-2 text-sm text-ink-soft">
+            当前来源为 Bilibili，不能在此内嵌视频；可在下方「从视频取得音频」保存同版音频练习，或前往
+            {" "}<a href={song.analyzed.transcriptionSourceUrl} target="_blank" rel="noopener noreferrer" className="underline">原视频</a>。
+          </p>
+        )}
+
         <PracticeStudio
           title={song.title}
           artist={song.artist}
           lines={song.analyzed.lines}
+          sourceUrl={song.analyzed.youtubeUrl || song.analyzed.transcriptionSourceUrl || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : "")}
+          songUpdatedAt={song.updatedAt}
         />
 
         {/* lyrics */}
@@ -255,8 +269,8 @@ function EmptyLyrics({ hasYoutube }: { hasYoutube: boolean }) {
       </div>
       <p className="font-serif text-[14px] md:text-[15px] text-ink-soft mt-3 max-w-md mx-auto leading-[1.55]">
         {hasYoutube
-          ? "这首歌 lrclib 没收录 —— 点右上「重转」Rin 会用 Gemini 多模态听音频帮主人转录喵。"
-          : "还没有关联音频 —— 去列表页粘贴歌词重新建档，或用导入页添加 URL。"}
+          ? "尚无匹配歌词。可用上方「音频转录」听音生成草稿，或在「纠错歌词」粘贴已核对的歌词。"
+          : "可在「纠错歌词」直接粘贴歌词，或点击「音频转录」提供 YouTube / BV 来源，不用重新建档。"}
       </p>
       <div className="mt-5 flex justify-center gap-2">
         <TextPill href="/new" tone="solid">
@@ -265,7 +279,7 @@ function EmptyLyrics({ hasYoutube }: { hasYoutube: boolean }) {
         <TextPill href="/import">Batch import</TextPill>
       </div>
       <div className="font-mono text-[10px] tracking-[0.16em] uppercase text-ink-mute mt-6">
-        {hasYoutube ? "Gemini 重转 · 约 30–60 秒 · 准确率 ~80%" : "Utahon"}
+        AI 转录可能听错，完成后请人工校对
       </div>
     </section>
   );

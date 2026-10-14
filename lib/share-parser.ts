@@ -1,5 +1,6 @@
 import { SchemaType, type Schema } from "@google/generative-ai";
 import { getGeminiModel } from "@/lib/gemini-client";
+import { parseModelJson } from "@/lib/model-json";
 
 const PRIMARY_MODEL =
   process.env.GEMINI_SHARE_MODEL ??
@@ -38,7 +39,8 @@ const SYSTEM_PROMPT = `你将解析音乐分享文本（QQ 音乐、网易云、
 - sourceUrl：原始分享链接（保留短链原样；无则留空字符串）
 - platform：来源平台标识（小写英文，如 qqmusic / netease / apple / spotify / other；无则留空字符串）
 
-完全无法识别为音乐分享时，所有字段返回空字符串。`;
+完全无法识别为音乐分享时，所有字段返回空字符串。
+只输出一个完整 JSON 对象，不要 Markdown 代码块、前言或解释。`;
 
 function isOverloadError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -74,17 +76,11 @@ export async function parseShareText(text: string): Promise<ParsedShare> {
     }
   }
 
-  const raw = result.response.text();
-  let parsed: ParsedShare;
-  try {
-    parsed = JSON.parse(raw) as ParsedShare;
-  } catch (err) {
-    console.error("[share-parser] JSON.parse failed", {
-      msg: err instanceof Error ? err.message : String(err),
-      sample: raw.slice(0, 500),
-    });
-    throw new Error("AI 输出格式异常，请重试");
-  }
+  const value = parseModelJson(
+    result.response.text(),
+    result.response.candidates?.[0]?.finishReason
+  );
+  const parsed = validateParsedShare(value);
   return {
     title: (parsed.title ?? "").trim(),
     artist: (parsed.artist ?? "").trim(),
@@ -92,4 +88,16 @@ export async function parseShareText(text: string): Promise<ParsedShare> {
     sourceUrl: (parsed.sourceUrl ?? "").trim(),
     platform: (parsed.platform ?? "").trim().toLowerCase(),
   };
+}
+
+export function validateParsedShare(value: unknown): ParsedShare {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("AI 分享识别格式异常，请重试");
+  }
+  const fields = ["title", "artist", "originalArtist", "sourceUrl", "platform"] as const;
+  const parsed = value as Record<string, unknown>;
+  if (fields.some((field) => typeof parsed[field] !== "string")) {
+    throw new Error("AI 分享识别字段不完整，请重试");
+  }
+  return parsed as ParsedShare;
 }

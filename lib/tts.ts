@@ -1,4 +1,4 @@
-import { isServerVoice } from "./tts-voices";
+import { DEFAULT_SERVER_VOICE, isRetiredServerVoice, isServerVoice } from "./tts-voices";
 
 const VOICE_KEY = "utahon-voice";
 const RATE_KEY_PREFIX = "utahon-voice-rate:";
@@ -10,13 +10,20 @@ export type ValidRate = (typeof VALID_RATES)[number];
 
 export function getSelectedVoiceName(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(VOICE_KEY);
+  let stored: string | null = null;
+  try { stored = localStorage.getItem(VOICE_KEY); } catch {}
+  if (stored === BROWSER_VOICE_KEY) return null;
+  if (!stored) return DEFAULT_SERVER_VOICE;
+  if (isRetiredServerVoice(stored)) {
+    setSelectedVoiceName(DEFAULT_SERVER_VOICE);
+    return DEFAULT_SERVER_VOICE;
+  }
+  return stored;
 }
 
 export function setSelectedVoiceName(name: string | null): void {
   if (typeof window === "undefined") return;
-  if (name) localStorage.setItem(VOICE_KEY, name);
-  else localStorage.removeItem(VOICE_KEY);
+  try { localStorage.setItem(VOICE_KEY, name ?? BROWSER_VOICE_KEY); } catch {}
 }
 
 export function clampRate(n: number): ValidRate {
@@ -40,7 +47,8 @@ function rateKey(voiceName: string | null): string {
 
 export function getSelectedRate(voiceName: string | null): ValidRate {
   if (typeof window === "undefined") return DEFAULT_RATE;
-  const raw = localStorage.getItem(rateKey(voiceName));
+  let raw: string | null = null;
+  try { raw = localStorage.getItem(rateKey(voiceName)); } catch {}
   if (raw === null) return DEFAULT_RATE;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return DEFAULT_RATE;
@@ -53,7 +61,7 @@ export function getSelectedRate(voiceName: string | null): ValidRate {
 export function setSelectedRate(voiceName: string | null, rate: number): void {
   if (typeof window === "undefined") return;
   const safe = clampRate(rate);
-  localStorage.setItem(rateKey(voiceName), String(safe));
+  try { localStorage.setItem(rateKey(voiceName), String(safe)); } catch {}
 }
 
 export function listJapaneseVoices(): SpeechSynthesisVoice[] {
@@ -67,8 +75,25 @@ export function hasBrowserJapaneseVoice(): boolean {
   return listJapaneseVoices().length > 0;
 }
 
-// 当前正在播放的控制器，新请求到来时 abort 旧的
 let currentController: AbortController | null = null;
+
+export type TtsNotice = { message: string; kind: "error" | "info" };
+let notice: TtsNotice | null = null;
+const noticeListeners = new Set<() => void>();
+
+export function subscribeTtsNotice(listener: () => void): () => void {
+  noticeListeners.add(listener);
+  return () => { noticeListeners.delete(listener); };
+}
+
+export function getTtsNotice(): TtsNotice | null { return notice; }
+export function getServerTtsNotice(): null { return null; }
+export function clearTtsNotice(): void { publishNotice(null); }
+
+function publishNotice(next: TtsNotice | null): void {
+  notice = next;
+  for (const listener of noticeListeners) listener();
+}
 
 /** 取消当前正在进行的 TTS 请求（含 fetch + 播放） */
 export function abortCurrent(): void {
@@ -77,12 +102,12 @@ export function abortCurrent(): void {
 
 function stopAll(): void {
   if (typeof window === "undefined") return;
-  if ("speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-  }
   if (currentController) {
     currentController.abort();
     currentController = null;
+  }
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
   }
 }
 
@@ -100,103 +125,121 @@ export function buildServerTtsUrl(
 }
 
 export type SpeakHandle = {
-  /** resolves when playback ends, rejects on abort/error */
+  /** Always settles; failures are shown by TtsFeedback. */
   promise: Promise<void>;
   abort: () => void;
 };
 
 export function speak(text: string, rate?: number): SpeakHandle {
-  // 空文本短路，返回一个已 resolve 的 handle
   if (typeof window === "undefined" || !text.trim()) {
     return { promise: Promise.resolve(), abort: () => {} };
   }
 
   stopAll();
-
+  clearTtsNotice();
   const selectedName = getSelectedVoiceName();
-  // 显式传 rate 优先（stepper preview 强制立即生效），否则按当前 voice 取持久化值
   const effectiveRate = rate !== undefined ? clampRate(rate) : getSelectedRate(selectedName);
+  const controller = new AbortController();
+  currentController = controller;
 
-  if (isServerVoice(selectedName)) {
-    const controller = new AbortController();
-    currentController = controller;
-
-    const promise = (async () => {
-      let blobUrl: string | null = null;
-      try {
-        const res = await fetch(
-          buildServerTtsUrl(text, selectedName!, effectiveRate),
-          { signal: controller.signal }
-        );
-        if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
-        const blob = await res.blob();
-        if (controller.signal.aborted) return;
-        blobUrl = URL.createObjectURL(blob);
-        const audio = new Audio(blobUrl);
-        await new Promise<void>((resolve) => {
-          // signal 已 aborted（注册监听器前的窗口）→ 立即结束
-          if (controller.signal.aborted) {
-            resolve();
-            return;
-          }
-          audio.onended = () => resolve();
-          audio.onerror = () => resolve();
-          controller.signal.addEventListener("abort", () => {
-            audio.pause();
-            audio.src = "";
-            resolve();
-          });
-          audio.play().catch(() => resolve());
-        });
-      } catch (err) {
-        // abort/HTTP/network 错误统一消化为 resolve，避免调用方 unhandled rejection
-        if (!controller.signal.aborted) {
-          console.warn("[tts] speak failed:", err);
+  const promise = (async () => {
+    try {
+      if (isServerVoice(selectedName)) {
+        try {
+          await playServer(text, selectedName!, effectiveRate, controller.signal);
+        } catch (err) {
+          if (controller.signal.aborted) return;
+          const fallback = listJapaneseVoices().find((voice) => voice.localService);
+          if (!fallback) throw err;
+          publishNotice({ kind: "info", message: `在线发音失败，已改用本机日语音色：${fallback.name}` });
+          await playBrowser(text, effectiveRate, fallback, controller.signal);
         }
-      } finally {
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
-        if (currentController === controller) currentController = null;
+      } else {
+        const voices = listJapaneseVoices();
+        const voice = voices.find((v) => v.name === selectedName) ?? voices[0];
+        if (!voice) throw new Error("浏览器没有可用的日语音色，请在音色菜单选择 Nanami 或 Keita");
+        await playBrowser(text, effectiveRate, voice, controller.signal);
       }
-    })();
-
-    return {
-      promise,
-      abort: () => controller.abort(),
-    };
-  }
-
-  // 浏览器 SpeechSynthesis 路径
-  if (!("speechSynthesis" in window)) {
-    return { promise: Promise.resolve(), abort: () => {} };
-  }
-
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "ja-JP";
-  u.rate = effectiveRate;
-
-  if (selectedName) {
-    const voices = window.speechSynthesis.getVoices();
-    const found = voices.find((v) => v.name === selectedName);
-    if (found) u.voice = found;
-  }
-
-  let aborted = false;
-  const promise = new Promise<void>((resolve) => {
-    u.onend = () => resolve();
-    u.onerror = () => resolve(); // 降级处理，不抛出
-    window.speechSynthesis.speak(u);
-    // 如果 abort 先被调用
-    if (aborted) {
-      window.speechSynthesis.cancel();
-      resolve();
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        publishNotice({ kind: "error", message: err instanceof Error ? err.message : "发音失败，请重试或切换音色" });
+      }
+    } finally {
+      if (currentController === controller) currentController = null;
     }
-  });
+  })();
 
-  return {
-    promise,
-    abort: () => {
-      aborted = true;
+  return { promise, abort: () => controller.abort() };
+}
+
+async function playServer(text: string, voice: string, rate: number, signal: AbortSignal): Promise<void> {
+  const timeout = AbortSignal.timeout(20_000);
+  let blob: Blob;
+  try {
+    const res = await fetch(buildServerTtsUrl(text, voice, rate), {
+      signal: AbortSignal.any([signal, timeout]),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(typeof body?.error === "string" ? body.error : `在线发音失败（HTTP ${res.status}），请重试或切换音色`);
+    }
+    blob = await res.blob();
+    if (!blob.size) throw new Error("在线发音返回空音频，请重试或切换音色");
+  } catch (err) {
+    if (timeout.aborted) throw new Error("在线发音请求超时，请稍后重试或选择本机日语音色");
+    if (err instanceof TypeError) throw new Error("无法连接在线发音服务，请检查网络或选择本机日语音色");
+    throw err;
+  }
+  if (signal.aborted) return;
+  const blobUrl = URL.createObjectURL(blob);
+  const audio = new Audio(blobUrl);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        audio.onended = null;
+        audio.onerror = null;
+        audio.pause();
+        audio.src = "";
+        if (error) reject(error); else resolve();
+      };
+      const abort = () => finish();
+      const timer = setTimeout(() => finish(new Error("发音播放超时，请重试")), 180_000);
+      audio.onended = () => finish();
+      audio.onerror = () => finish(new Error("音频无法播放，请重试或切换音色"));
+      signal.addEventListener("abort", abort, { once: true });
+      audio.play().catch(() => finish(new Error("浏览器未允许播放音频，请再次点击朗读")));
+    });
+  } finally { URL.revokeObjectURL(blobUrl); }
+}
+
+function playBrowser(text: string, rate: number, voice: SpeechSynthesisVoice, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "ja-JP";
+    utterance.rate = rate;
+    utterance.voice = voice;
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      utterance.onend = null;
+      utterance.onerror = null;
+      if (error) reject(error); else resolve();
+    };
+    const abort = () => {
+      finish();
       window.speechSynthesis.cancel();
-    },
-  };
+    };
+    const timer = setTimeout(() => {
+      finish(new Error("本机发音超时，请重试或切换音色"));
+      window.speechSynthesis.cancel();
+    }, 180_000);
+    utterance.onend = () => finish();
+    utterance.onerror = () => finish(new Error("本机日语发音失败，请切换音色后重试"));
+    signal.addEventListener("abort", abort, { once: true });
+    try { window.speechSynthesis.speak(utterance); }
+    catch { finish(new Error("浏览器无法发音，请切换到 Nanami 或 Keita")); }
+  });
 }

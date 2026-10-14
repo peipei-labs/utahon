@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -20,7 +21,7 @@ import { cn } from "@/lib/utils";
 import type { PracticeTrack } from "@/types/practice";
 
 const STEM_TRACKS: PracticeTrack[] = ["vocals", "drums", "bass", "other"];
-const LOCAL_RATES = [0.5, 0.6, 0.75, 0.8, 0.9, 1];
+const LOCAL_RATES = [0.25, 0.5, 0.6, 0.75, 0.8, 0.9, 1];
 const DEFAULT_TRACK_MIX: PlayerContextValue["trackMix"] = {
   mix: { volume: 1, muted: false, solo: false },
   vocals: { volume: 1, muted: false, solo: false },
@@ -31,9 +32,11 @@ const DEFAULT_TRACK_MIX: PlayerContextValue["trackMix"] = {
 
 type InternalCtx = {
   setYoutubePlayer: (player: YouTubePlayer | null) => void;
+  releaseYoutubePlayer: () => void;
   setLocalAudio: (track: PracticeTrack, element: HTMLAudioElement | null) => void;
   reportPlaybackRate: (rate: number) => void;
   setPlaying: (playing: boolean) => void;
+  handlePlaybackEnded: () => void;
   durationSec: number;
   videoId: string;
   source: "local" | "youtube";
@@ -44,6 +47,10 @@ const PlayerPlateCtx = createContext<InternalCtx | null>(null);
 
 function clampTime(value: number, duration: number): number {
   return Math.max(0, Math.min(value, duration > 0 ? duration : Number.MAX_SAFE_INTEGER));
+}
+
+export function clampPlaybackRate(rate: number): number {
+  return Number.isFinite(rate) ? Math.max(0.25, Math.min(2, rate)) : 1;
 }
 
 function setElementVolume(element: HTMLAudioElement, volume: number): void {
@@ -64,7 +71,13 @@ export function SongPlayerProvider({
   children: ReactNode;
 }) {
   const { practice } = usePractice();
-  const source = practice.hasAudio ? "local" : "youtube";
+  const [sourceChoice, setSourceChoice] = useState<{ videoId: string; source: "local" | "youtube" } | null>(null);
+  const source = !practice.hasAudio ? "youtube" : !videoId ? "local"
+    : sourceChoice?.videoId === videoId ? sourceChoice.source : "youtube";
+  const availableSources = useMemo<Array<"local" | "youtube">>(
+    () => [...(videoId ? ["youtube" as const] : []), ...(practice.hasAudio ? ["local" as const] : [])],
+    [practice.hasAudio, videoId]
+  );
   const stemSet = new Set(practice.data.stems);
   const hasFourStems = STEM_TRACKS.every((track) => stemSet.has(track));
   const tracks = useMemo<PracticeTrack[]>(
@@ -132,9 +145,14 @@ export function SongPlayerProvider({
     setPlaying(false);
   }, [localElements, source]);
 
+  const selectSource = useCallback((nextSource: "local" | "youtube") => {
+    pause();
+    setSourceChoice({ videoId, source: nextSource });
+  }, [pause, videoId]);
+
   const setPlaybackRate = useCallback(
     (rate: number) => {
-      const safeRate = Math.max(0.5, Math.min(2, rate));
+      const safeRate = clampPlaybackRate(rate);
       if (source === "local") {
         for (const audio of localElements()) {
           audio.playbackRate = safeRate;
@@ -200,6 +218,18 @@ export function SongPlayerProvider({
     [play, seekTo]
   );
 
+  const handlePlaybackEnded = useCallback(() => {
+    const range = activeRangeRef.current;
+    if (range && loopEnabledRef.current) {
+      seekTo(Math.max(0, range.startTime - paddingRef.current));
+      play();
+    } else {
+      activeRangeRef.current = null;
+      setLoopRangeState(null);
+      pause();
+    }
+  }, [pause, play, seekTo]);
+
   const setYoutubePlayer = useCallback(
     (player: YouTubePlayer | null) => {
       youtubeRef.current = player;
@@ -215,6 +245,10 @@ export function SongPlayerProvider({
 
   const reportPlaybackRate = useCallback((rate: number) => {
     if (Number.isFinite(rate) && rate > 0) setPlaybackRateState(rate);
+  }, []);
+
+  const releaseYoutubePlayer = useCallback(() => {
+    youtubeRef.current = null;
   }, []);
 
   const setLocalAudio = useCallback(
@@ -238,14 +272,34 @@ export function SongPlayerProvider({
     }
   }, [trackMix, tracks]);
 
+  const restoreTrackPlayback = useEffectEvent(() => {
+    if (source !== "local") return;
+    for (const audio of localElements()) {
+      audio.currentTime = currentTime;
+      if (playing) void audio.play().catch(() => pause());
+    }
+  });
+  useEffect(() => { restoreTrackPlayback(); }, [tracks]);
+
   useEffect(() => {
+    const youtube = youtubeRef.current;
+    if (youtube?.getIframe?.()?.isConnected) youtube.pauseVideo();
+    for (const audio of localElements()) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    activeRangeRef.current = null;
+    loopEnabledRef.current = false;
     const reset = window.setTimeout(() => {
       setAvailableRates(source === "local" ? LOCAL_RATES : [0.5, 0.75, 1]);
       setCurrentTime(0);
+      setDuration(durationSec);
       setPlaying(false);
+      setLoopRangeState(null);
+      setLoopEnabledState(false);
     }, 0);
     return () => window.clearTimeout(reset);
-  }, [practice.audioSha256, source]);
+  }, [durationSec, localElements, practice.audioSha256, source, videoId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -290,6 +344,8 @@ export function SongPlayerProvider({
     () => ({
       available,
       source,
+      availableSources,
+      selectSource,
       currentTime,
       duration,
       playbackRate,
@@ -313,6 +369,7 @@ export function SongPlayerProvider({
     }),
     [
       available,
+      availableSources,
       availableRates,
       currentTime,
       duration,
@@ -325,6 +382,7 @@ export function SongPlayerProvider({
       playSegment,
       playbackRate,
       seekTo,
+      selectSource,
       setLoopEnabled,
       setLoopRange,
       setPaddingSec,
@@ -340,15 +398,17 @@ export function SongPlayerProvider({
   const internalValue = useMemo<InternalCtx>(
     () => ({
       setYoutubePlayer,
+      releaseYoutubePlayer,
       setLocalAudio,
       reportPlaybackRate,
       setPlaying,
+      handlePlaybackEnded,
       durationSec: duration,
       videoId,
       source,
       tracks,
     }),
-    [duration, reportPlaybackRate, setLocalAudio, setYoutubePlayer, source, tracks, videoId]
+    [duration, handlePlaybackEnded, releaseYoutubePlayer, reportPlaybackRate, setLocalAudio, setYoutubePlayer, source, tracks, videoId]
   );
 
   return (
@@ -373,10 +433,30 @@ export function EditorialPlayerPlate({
   const player = useContext(PlayerContext);
   if (!ctx || !player) return null;
   if (!player.available) return emptyFallback;
-  return ctx.source === "local" ? (
-    <LocalPracticePlate className={className} compact={compact} ctx={ctx} player={player} />
-  ) : (
-    <YoutubePlate className={className} compact={compact} ctx={ctx} player={player} />
+  return (
+    <div className={className}>
+      {player.availableSources.length > 1 ? (
+        <div className="mb-2">
+          <div className="flex gap-2" aria-label="播放来源">
+            {player.availableSources.map((source) => (
+              <button key={source} type="button" aria-pressed={source === player.source}
+                onClick={() => player.selectSource(source)}
+                className={cn("border px-2 py-1 text-[12px]", source === player.source ? "border-ink bg-ink text-paper" : "border-rule text-ink-soft")}>
+                {source === "youtube" ? "YouTube" : "练习音频"}
+              </button>
+            ))}
+          </div>
+          {player.source === "local" ? (
+            <p className="mt-1 text-[11px] text-ink-soft">正在播放已保存的练习音频；请确认它与当前歌词是同一版本。</p>
+          ) : null}
+        </div>
+      ) : null}
+      {ctx.source === "local" ? (
+        <LocalPracticePlate compact={compact} ctx={ctx} player={player} />
+      ) : (
+        <YoutubePlate compact={compact} ctx={ctx} player={player} />
+      )}
+    </div>
   );
 }
 
@@ -401,8 +481,15 @@ function LocalPracticePlate({
           ref={(element) => ctx.setLocalAudio(track, element)}
           src={`/api/songs/${practice.songId}/practice/audio/${track}?v=${practice.audioSha256}`}
           preload={track === ctx.tracks[0] ? "metadata" : "auto"}
-          onPlay={() => ctx.setPlaying(true)}
-          onPause={() => ctx.setPlaying(false)}
+          onPlay={() => { if (track === ctx.tracks[0]) ctx.setPlaying(true); }}
+          onPause={(event) => {
+            if (track === ctx.tracks[0] && event.currentTarget.paused && !event.currentTarget.ended) {
+              ctx.setPlaying(false);
+            }
+          }}
+          onEnded={(event) => {
+            if (track === ctx.tracks[0] && event.currentTarget.ended) ctx.handlePlaybackEnded();
+          }}
         />
       ))}
       <div className="relative aspect-video bg-ink border border-ink overflow-hidden text-paper p-5 flex flex-col justify-between">
@@ -466,6 +553,9 @@ function YoutubePlate({
   const retryCount = useRef(0);
   const readyRef = useRef(false);
   const lastReloadAtRef = useRef(0);
+  const { releaseYoutubePlayer } = ctx;
+
+  useEffect(() => () => releaseYoutubePlayer(), [releaseYoutubePlayer]);
 
   const setReady = useCallback((value: boolean) => {
     readyRef.current = value;
@@ -556,7 +646,10 @@ function YoutubePlate({
             ctx.setYoutubePlayer(event.target);
             setReady(true);
           }}
-          onStateChange={(event: YouTubeEvent) => ctx.setPlaying(event.data === 1)}
+          onStateChange={(event: YouTubeEvent) => {
+            if (event.data === 0) ctx.handlePlaybackEnded();
+            else ctx.setPlaying(event.data === 1);
+          }}
           onPlaybackRateChange={(event: YouTubeEvent) => ctx.reportPlaybackRate(Number(event.data))}
           onError={() => {
             if (retryCount.current < 2) {
