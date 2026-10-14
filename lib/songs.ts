@@ -182,7 +182,10 @@ export function updateSongLyrics(
     .prepare(
       `UPDATE songs
          SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?,
-             duration_sec = CASE WHEN youtube_url = ? THEN duration_sec ELSE 0 END,
+             duration_sec = CASE WHEN youtube_url = ? OR EXISTS (
+               SELECT 1 FROM song_practice
+               WHERE song_id = songs.id AND audio_sha256 != ''
+             ) THEN duration_sec ELSE 0 END,
              youtube_url = ?, youtube_id = ?
          WHERE id = ? AND updated_at = ?`
     )

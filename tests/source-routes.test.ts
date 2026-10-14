@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
@@ -23,7 +23,8 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     closeDatabase = () => getDb().close();
     const { POST: editLyrics } = await import("../app/api/songs/[id]/lyrics/route");
     const { POST: retranscribe } = await import("../app/api/songs/[id]/retranscribe/route");
-    const { setPracticeAudio, practiceTrackPath } = await import("../lib/practice");
+    const { getPractice, setPracticeAudio, practiceTrackPath } = await import("../lib/practice");
+    const { PUT: editPractice } = await import("../app/api/songs/[id]/practice/route");
     const { PATCH: editSource } = await import("../app/api/songs/[id]/route");
     const { POST: ingestShare } = await import("../app/api/import/share/ingest/route");
     const { NextRequest } = await import("next/server");
@@ -131,6 +132,41 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.deepEqual(downloads, [bvUrl]);
     assert.equal(getSong(bvId)!.analyzed.transcriptionSourceUrl, bvUrl);
     assert.equal(getSong(bvId)!.youtubeId, "");
+    for (const [operation, sourceInput] of [
+      ["source", "KNXrHFvX1Gs"], ["source", ""],
+      ["retranscribe", "dQw4w9WgXcQ"], ["retranscribe", bvUrl],
+    ]) {
+      await t.test(`${operation} ${sourceInput || "clear"} retains practice duration and bounds`, async () => {
+        const beforeSong = getSong(bvId)!;
+        const beforePractice = getPractice(bvId)!;
+        const endpoint = "http://localhost/api/test";
+        const changed = operation === "source"
+          ? await editSource(new NextRequest(endpoint, { method: "PATCH",
+            body: JSON.stringify({ youtubeUrl: sourceInput, updatedAt: beforeSong.updatedAt }),
+          }), bvContext)
+          : await retranscribe(new Request(endpoint, { method: "POST",
+            body: JSON.stringify({ sourceInput, updatedAt: beforeSong.updatedAt, confirmLocalAudioSource: true }),
+          }), bvContext);
+        assert.equal(changed.status, 200);
+        assert.equal(getSong(bvId)!.durationSec, 20);
+        assert.ok(getSong(bvId)!.updatedAt > beforeSong.updatedAt);
+        assert.deepEqual(getPractice(bvId), beforePractice);
+        assert.equal(readFileSync(audioPath, "utf8"), "offline audio fixture");
+        const invalid = { ...beforePractice.data, sections: [{ ...beforePractice.data.sections[0], startTime: 21, endTime: 25 }] };
+        const rejected = await editPractice(new Request(endpoint, { method: "PUT",
+          body: JSON.stringify({ data: invalid, baseUpdatedAt: beforePractice.updatedAt }),
+        }), bvContext);
+        assert.equal(rejected.status, 400);
+        assert.match((await rejected.json()).error, /超出音频范围/);
+        assert.deepEqual(getPractice(bvId), beforePractice);
+        const currentSong = getSong(bvId)!;
+        const stale = await editSource(new NextRequest(endpoint, { method: "PATCH",
+          body: JSON.stringify({ youtubeUrl: "dQw4w9WgXcQ", updatedAt: beforeSong.updatedAt }),
+        }), bvContext);
+        assert.equal(stale.status, 409);
+        assert.deepEqual(getSong(bvId), currentSong);
+      });
+    }
     downloadFails = true;
     const fetchesBefore = t.mock.method(globalThis, "fetch", () => { throw new Error("Failed downloads must not call AI"); });
     for (const sourceInput of [bvUrl, "dQw4w9WgXcQ"]) {

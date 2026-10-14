@@ -25,7 +25,9 @@ test("source and lyrics changes compare versions atomically and keep player meta
       id TEXT PRIMARY KEY, title TEXT, artist TEXT, original_artist TEXT, lyrics TEXT,
       analyzed TEXT, lines_count INTEGER, youtube_url TEXT, youtube_id TEXT,
       source TEXT, duration_sec INTEGER, created_at INTEGER, updated_at INTEGER
-    )`);
+    ); CREATE TABLE song_practice (song_id TEXT PRIMARY KEY, audio_sha256 TEXT NOT NULL)`);
+    db.prepare("INSERT INTO song_practice VALUES (?, ?)").run("test", "");
+    db.prepare("INSERT INTO song_practice VALUES (?, ?)").run("other-song", "a".repeat(64));
     const oldUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     const analyzed: AnalyzedSong = { title: "测试", artist: "Rin", youtubeUrl: oldUrl,
       youtubeId: "dQw4w9WgXcQ", lines: [] };
