@@ -90,6 +90,16 @@ test("source practice route downloads without AI and atomically preserves existi
       assert.ok(getSong(id)!.updatedAt > before.updatedAt);
       assertClean();
     });
+    await t.test("short YouTube URLs with trailing slashes download and persist a canonical source", async () => {
+      const id = makeSong("");
+      const response = await call(id, { ...bodyFor(id), sourceInput: "https://youtu.be/dQw4w9WgXcQ/?si=sample" });
+      assert.equal(response.status, 201);
+      assert.equal(downloads.at(-1), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+      assert.equal(getSong(id)!.youtubeId, "dQw4w9WgXcQ");
+      assert.equal(getSong(id)!.analyzed.youtubeUrl, downloads.at(-1));
+      assert.equal(getPractice(id)!.hasAudio, true);
+      assertClean();
+    });
     await t.test("explicit BV source is saved only with successfully downloaded audio", async () => {
       const id = makeSong();
       const response = await call(id, { ...bodyFor(id), sourceInput: "BV1xx4y1m7rE" });

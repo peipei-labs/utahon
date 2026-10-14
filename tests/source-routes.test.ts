@@ -84,7 +84,7 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(sourceConflict.status, 409);
 
     const imported = await ingestShare(new Request("http://localhost/api/import/share/ingest", {
-      method: "POST", body: JSON.stringify({ title: "新歌", artist: "Rin", sourceUrl: "https://youtu.be/KNXrHFvX1Gs" }),
+      method: "POST", body: JSON.stringify({ title: "新歌", artist: "Rin", sourceUrl: "https://youtu.be/KNXrHFvX1Gs/?si=sample" }),
     }));
     assert.equal(imported.status, 200);
     const outcome = await imported.json() as { kind: string; songId: string };
@@ -133,8 +133,8 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(getSong(bvId)!.analyzed.transcriptionSourceUrl, bvUrl);
     assert.equal(getSong(bvId)!.youtubeId, "");
     for (const [operation, sourceInput] of [
-      ["source", "KNXrHFvX1Gs"], ["source", ""],
-      ["retranscribe", "dQw4w9WgXcQ"], ["retranscribe", bvUrl],
+      ["source", "https://youtu.be/KNXrHFvX1Gs/"], ["source", ""],
+      ["retranscribe", "https://youtu.be/dQw4w9WgXcQ/?si=sample"], ["retranscribe", bvUrl],
     ]) {
       await t.test(`${operation} ${sourceInput || "clear"} retains practice duration and bounds`, async () => {
         const beforeSong = getSong(bvId)!;

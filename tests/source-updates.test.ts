@@ -18,6 +18,21 @@ test("YouTube share URLs are preserved and unrelated platform links are not vide
   });
 });
 
+test("short YouTube URLs normalize trailing slashes without accepting invalid sources", () => {
+  const id = "dQw4w9WgXcQ";
+  const expected = { kind: "youtube", id, url: `https://www.youtube.com/watch?v=${id}` };
+  for (const url of [`https://youtu.be/${id}`, `https://youtu.be/${id}/`,
+    `https://youtu.be/${id}/?si=sample#t=10`, `https://www.youtu.be/${id}/`]) {
+    assert.deepEqual(parsePlaybackSource(url), expected);
+    assert.equal(youtubeUrlFromShare(`分享《测试》${url}`), expected.url);
+  }
+  for (const url of ["https://youtu.be/", `https://youtu.be/${id.slice(1)}/`,
+    `https://youtu.be/${id}x/`, `https://youtu.be/${id}/extra`,
+    `https://youtu.be.evil.test/${id}/`, `ftp://youtu.be/${id}/`]) {
+    assert.equal(parsePlaybackSource(url), null);
+  }
+});
+
 test("source and lyrics changes compare versions atomically and keep player metadata in sync", () => {
   const db = new Database(":memory:");
   try {

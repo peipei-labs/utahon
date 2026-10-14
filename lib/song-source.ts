@@ -16,7 +16,7 @@ export function parsePlaybackSource(input: string): SourceRef | null {
       const bv = url.pathname.match(/^\/video\/(BV[A-Za-z0-9]{10})(?:\/|$)/)?.[1];
       return bv ? { kind: "bilibili", id: bv, url: `https://www.bilibili.com/video/${bv}/` } : null;
     }
-    if (host === "youtu.be" || host === "www.youtu.be") id = url.pathname.slice(1);
+    if (host === "youtu.be" || host === "www.youtu.be") id = url.pathname.slice(1).replace(/\/+$/, "");
     else if (["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"].includes(host)) {
       id = url.pathname === "/watch"
         ? url.searchParams.get("v") ?? ""
