@@ -1,4 +1,5 @@
 import { processSong, type SongInput } from "@/lib/song-pipeline";
+import { parsePlaybackSource, youtubeUrlFromShare } from "@/lib/song-source";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 type IngestBody = {
   title?: string;
   artist?: string;
+  sourceUrl?: string;
+  youtubeUrl?: string;
 };
 
 export async function POST(req: Request) {
@@ -24,10 +27,17 @@ export async function POST(req: Request) {
     return Response.json({ error: "歌手不能为空" }, { status: 400 });
   }
 
+  const explicitSource = typeof body.youtubeUrl === "string" ? body.youtubeUrl.trim() : "";
+  const source = parsePlaybackSource(explicitSource || youtubeUrlFromShare(
+    typeof body.sourceUrl === "string" ? body.sourceUrl : ""
+  ));
+  if (explicitSource && source?.kind !== "youtube") {
+    return Response.json({ error: "补充的播放来源必须是 YouTube 链接或 videoId" }, { status: 400 });
+  }
   const songInput: SongInput = {
     title,
     artist,
-    video: null,
+    video: source?.kind === "youtube" ? { id: source.id, url: source.url } : null,
     source: "share",
   };
 

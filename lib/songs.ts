@@ -2,7 +2,9 @@ import { randomUUID } from "crypto";
 import { getDb } from "./db";
 import { extractYoutubeId } from "./youtube";
 import { trashPracticeFiles } from "./practice";
+import type Database from "better-sqlite3";
 import type { AnalyzedSong, SongMeta, SongFull, SongSource } from "@/types/lyrics";
+import type { PracticeDataV1 } from "@/types/practice";
 
 type SongListRow = {
   id: string;
@@ -28,6 +30,7 @@ type SongDetailRow = SongListRow & {
   lyrics: string;
   analyzed: string;
   youtube_url: string;
+  updated_at: number;
 };
 
 function parseAnalyzed(raw: string, id: string): AnalyzedSong | null {
@@ -112,11 +115,11 @@ export function listSongs(): SongMeta[] {
   }));
 }
 
-export function getSong(id: string): SongFull | null {
-  const row = getDb()
+export function getSong(id: string, database: Database.Database = getDb()): SongFull | null {
+  const row = database
     .prepare(
       `SELECT id, title, artist, original_artist, lyrics, analyzed, lines_count,
-              youtube_url, youtube_id, source, duration_sec, created_at
+              youtube_url, youtube_id, source, duration_sec, created_at, updated_at
        FROM songs WHERE id = ?`
     )
     .get(id) as SongDetailRow | undefined;
@@ -125,8 +128,8 @@ export function getSong(id: string): SongFull | null {
   const analyzed = parseAnalyzed(row.analyzed, row.id);
   if (!analyzed) return null;
 
-  analyzed.youtubeUrl = analyzed.youtubeUrl || row.youtube_url;
-  analyzed.youtubeId = analyzed.youtubeId || row.youtube_id;
+  analyzed.youtubeUrl = row.youtube_url;
+  analyzed.youtubeId = row.youtube_id;
 
   return {
     id: row.id,
@@ -136,6 +139,7 @@ export function getSong(id: string): SongFull | null {
     lyrics: row.lyrics,
     linesCount: row.lines_count,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     youtubeId: row.youtube_id,
     source: row.source,
     durationSec: row.duration_sec,
@@ -169,16 +173,74 @@ export function deleteSongs(ids: string[]): number {
 export function updateSongLyrics(
   id: string,
   lyrics: string,
-  analyzed: AnalyzedSong
+  analyzed: AnalyzedSong,
+  expectedUpdatedAt: number,
+  database: Database.Database = getDb()
 ): boolean {
-  const result = getDb()
+  return database.transaction(() => updateSongLyricsInTransaction(id, lyrics, analyzed, expectedUpdatedAt, database)).immediate();
+}
+
+function updateSongLyricsInTransaction(
+  id: string,
+  lyrics: string,
+  analyzed: AnalyzedSong,
+  expectedUpdatedAt: number,
+  database: Database.Database
+): boolean {
+  const current = getSong(id, database);
+  if (!current || current.updatedAt !== expectedUpdatedAt) return false;
+  const youtubeUrl = analyzed.youtubeUrl;
+  const youtubeId = extractYoutubeId(youtubeUrl);
+  const result = database
     .prepare(
       `UPDATE songs
-         SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?
-         WHERE id = ?`
+         SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?,
+             duration_sec = CASE WHEN youtube_url = ? OR EXISTS (
+               SELECT 1 FROM song_practice
+               WHERE song_id = songs.id AND audio_sha256 != ''
+             ) THEN duration_sec ELSE 0 END,
+             youtube_url = ?, youtube_id = ?
+         WHERE id = ? AND updated_at = ?`
     )
-    .run(lyrics, JSON.stringify(analyzed), analyzed.lines.length, Date.now(), id);
-  return result.changes > 0;
+    .run(
+      lyrics, JSON.stringify({ ...analyzed, youtubeId }), analyzed.lines.length,
+      Math.max(Date.now(), expectedUpdatedAt + 1), youtubeUrl, youtubeUrl, youtubeId,
+      id, expectedUpdatedAt
+    );
+  if (result.changes === 0) return false;
+  if (JSON.stringify(current.analyzed.lines) !== JSON.stringify(analyzed.lines)) {
+    const practice = database.prepare("SELECT practice_json, updated_at FROM song_practice WHERE song_id = ?")
+      .get(id) as { practice_json: string; updated_at: number } | undefined;
+    if (practice) {
+      let json = practice.practice_json;
+      if (json) {
+        const data = JSON.parse(json) as PracticeDataV1;
+        data.chords = data.chords.map((chord) => {
+          const next = { ...chord };
+          delete next.lineIndex;
+          delete next.tokenIndex;
+          return next;
+        });
+        json = JSON.stringify(data);
+      }
+      database.prepare("UPDATE song_practice SET practice_json = ?, updated_at = ? WHERE song_id = ?")
+        .run(json, Math.max(Date.now(), practice.updated_at + 1), id);
+    }
+  }
+  return true;
+}
+
+export function updateSongSource(
+  id: string,
+  youtubeUrl: string,
+  expectedUpdatedAt: number,
+  database: Database.Database = getDb()
+): boolean {
+  const song = getSong(id, database);
+  if (!song || song.updatedAt !== expectedUpdatedAt) return false;
+  return updateSongLyrics(id, song.lyrics, {
+    ...song.analyzed, youtubeUrl, youtubeId: extractYoutubeId(youtubeUrl),
+  }, expectedUpdatedAt, database);
 }
 
 export function existsByYoutubeId(youtubeId: string): boolean {

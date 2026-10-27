@@ -1,7 +1,7 @@
 const LRCLIB_BASE = "https://lrclib.net/api";
 const USER_AGENT = "utahon (https://github.com/peipei-personal/utahon)";
 
-type LrclibTrack = {
+export type LrclibTrack = {
   id: number;
   trackName: string;
   artistName: string;
@@ -24,36 +24,67 @@ export type LrclibResult = {
 export async function fetchLrclibLyrics(params: {
   title: string;
   artist: string;
+  durationSec?: number | null;
 }): Promise<LrclibResult | null> {
   const title = params.title.trim();
   const artist = params.artist.trim();
   if (!title) return null;
 
-  if (artist) {
-    const direct = await tryGet(title, artist);
-    if (direct) {
-      const r = pickLyrics(direct);
-      if (r) return r;
-    }
+  if (artist && params.durationSec && params.durationSec > 0) {
+    const direct = await tryGet(title, artist, params.durationSec);
+    const matched = selectMatchingTrack(direct ? [direct] : [], params);
+    if (matched) return pickLyrics(matched);
   }
 
   const q = artist ? `${artist} ${title}` : title;
   const list = await trySearch(q);
-  for (const candidate of list) {
-    const r = pickLyrics(candidate);
-    if (r) return r;
-  }
+  const matched = selectMatchingTrack(list, params);
+  return matched ? pickLyrics(matched) : null;
+}
 
-  return null;
+function normalizeName(value: string): string {
+  return value.normalize("NFKC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+export function selectMatchingTrack(
+  tracks: LrclibTrack[],
+  params: { title: string; artist: string; durationSec?: number | null }
+): LrclibTrack | null {
+  const title = normalizeName(params.title);
+  const artist = normalizeName(params.artist);
+  const duration = params.durationSec && params.durationSec > 0 ? params.durationSec : null;
+  const candidates = tracks.filter((track) =>
+    normalizeName(track.trackName) === title &&
+    (!artist || normalizeName(track.artistName) === artist) &&
+    !track.instrumental && Boolean(track.syncedLyrics?.trim() || track.plainLyrics?.trim()) &&
+    (!duration || Math.abs(track.duration - duration) <= 2)
+  );
+  if (!candidates.length) return null;
+  if (!artist && new Set(candidates.map((track) => normalizeName(track.artistName))).size > 1) {
+    return null;
+  }
+  if (!duration && Math.max(...candidates.map((track) => track.duration)) -
+      Math.min(...candidates.map((track) => track.duration)) > 2) {
+    return null;
+  }
+  return candidates.sort((a, b) => {
+    if (duration) {
+      const distance = Math.abs(a.duration - duration) - Math.abs(b.duration - duration);
+      if (distance) return distance;
+    }
+    return Number(Boolean(b.syncedLyrics?.trim())) - Number(Boolean(a.syncedLyrics?.trim()));
+  })[0];
 }
 
 async function tryGet(
   trackName: string,
-  artistName: string
+  artistName: string,
+  durationSec?: number | null
 ): Promise<LrclibTrack | null> {
   const url = new URL(`${LRCLIB_BASE}/get`);
   url.searchParams.set("track_name", trackName);
   url.searchParams.set("artist_name", artistName);
+  if (durationSec && durationSec > 0) url.searchParams.set("duration", String(durationSec));
 
   const res = await fetch(url.toString(), {
     headers: { "User-Agent": USER_AGENT },

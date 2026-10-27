@@ -62,7 +62,6 @@ export async function analyzeLyrics(params: {
 
   const enrichedByIndex = new Map<number, AnalyzedLine>(
     enrichedSubset
-      .slice(0, analyzableEntries.length)
       .map((line, i) => [analyzableEntries[i].index, line])
   );
 

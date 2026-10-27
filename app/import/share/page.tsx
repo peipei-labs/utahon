@@ -24,12 +24,14 @@ import {
 import { TabBar, TextPill } from "@/components/editorial-interactive";
 import type { ParsedShare } from "@/lib/share-parser";
 import type { SongOutcome } from "@/lib/song-pipeline";
+import { youtubeUrlFromShare } from "@/lib/song-source";
 
 type PreviewData = {
   title: string;
   artist: string;
   originalArtist: string;
   sourceUrl: string;
+  youtubeUrl: string;
   platform: string;
 };
 
@@ -84,6 +86,7 @@ export default function ShareImportPage() {
           artist: parsed.artist,
           originalArtist: parsed.originalArtist,
           sourceUrl: parsed.sourceUrl,
+          youtubeUrl: youtubeUrlFromShare(trimmed) || youtubeUrlFromShare(parsed.sourceUrl),
           platform: parsed.platform,
         },
       });
@@ -102,6 +105,8 @@ export default function ShareImportPage() {
         body: JSON.stringify({
           title: data.title,
           artist: data.artist,
+          sourceUrl: data.sourceUrl,
+          youtubeUrl: data.youtubeUrl,
         }),
       });
       const body = await res.json().catch(() => null);
@@ -119,7 +124,9 @@ export default function ShareImportPage() {
       if (outcome.kind === "fail") {
         setState({
           kind: "error",
-          message: `${outcome.reason} · lrclib 没找到这首歌的歌词，主人校对一下歌名 / 歌手再试？`,
+          message: outcome.reason === "no_lyrics_no_video"
+            ? "lrclib 没有找到歌名、歌手及版本匹配的歌词。请校对信息，或补充 YouTube 来源建立待转录歌曲。"
+            : `导入未完成：${outcome.reason}`,
           back: "preview",
           preview: data,
         });
@@ -266,7 +273,7 @@ function IdleSection({
             className="block w-full px-4 py-3.5 font-mono text-[13px] md:text-[14px] tracking-tight bg-transparent text-ink placeholder:text-ink-mute/60 outline-none border-b border-ink resize-y leading-[1.6]"
           />
           <div className="flex flex-col md:flex-row md:items-center justify-between px-4 py-2.5 gap-3 md:gap-4">
-            <Smallcaps>ai · lrclib · gemini · ~10s end-to-end</Smallcaps>
+            <Smallcaps>ai · lrclib · gemini</Smallcaps>
             <TextPill
               onClick={onSubmit}
               tone="red"
@@ -311,7 +318,7 @@ function IdleSection({
           </li>
         </ul>
         <div className="mt-5 p-3.5 border border-rule bg-paper-deep/60 font-serif italic text-[13px] text-ink-soft leading-[1.5]">
-          一首歌大约 5-15 秒搞定 · 主人复制分享文本时不用清理括号 / 注音，AI 会自己判断
+          AI 识别及标注需要人工校对；耗时取决于歌词长度和模型服务。
         </div>
       </aside>
     </motion.section>
@@ -384,6 +391,13 @@ function PreviewSection({
             onChange={(v) => onChange("artist", v)}
             placeholder="主唱 · 必填 · lrclib 用此搜索"
             jp
+          />
+          <PreviewField
+            label="YouTube 播放来源"
+            value={data.youtubeUrl}
+            onChange={(v) => onChange("youtubeUrl", v)}
+            placeholder="可选 · YouTube URL 或 videoId"
+            hint="其他音乐平台的分享链接不能内嵌播放。可在这里补充同一录音版本，或入库后再添加。"
           />
           <PreviewField
             label="Featured / Composer (合作者)"
@@ -511,7 +525,7 @@ function IngestingSection({ data }: { data: PreviewData }) {
         Rin 正在帮 Peipei主人入库《
         <span className="font-serif-jp jp">{data.title}</span>》喵～
       </div>
-      <Smallcaps tone="soft">lrclib · gemini · ~10s</Smallcaps>
+      <Smallcaps tone="soft">lrclib · gemini · 请等待分析完成</Smallcaps>
     </motion.section>
   );
 }
