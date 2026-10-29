@@ -21,14 +21,16 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          script_stop: true
           command_timeout: 8m
           script: |
+            set -e
             cd /opt/utahon
             echo "[deploy] pull latest"
             git pull --ff-only
             echo "[deploy] npm ci"
             npm ci --no-audit --no-fund
+            echo "[deploy] uv sync"
+            uv sync --frozen
             echo "[deploy] build"
             npm run build
             echo "[deploy] restart service"

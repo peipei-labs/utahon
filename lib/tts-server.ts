@@ -1,6 +1,7 @@
 import "server-only";
-import { Communicate } from "edge-tts-universal";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { isServerVoice } from "./tts-voices";
 
 const CACHE_MAX_BYTES = 16 * 1024 * 1024;
@@ -51,38 +52,47 @@ async function synthesizeMp3Internal(
   voice: string,
   rate: number
 ): Promise<Buffer> {
-  const communicate = new Communicate(text, {
-    voice,
-    rate: rateToPercent(rate),
-    connectionTimeout: 10_000,
+  return new Promise((resolve, reject) => {
+    const cwd = process.cwd();
+    const python = join(cwd, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+    const proc = spawn(python, [join(cwd, "scripts", "synthesize-tts.py")], {
+      cwd,
+      shell: false,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const chunks: Buffer[] = [];
+    let settled = false;
+    const finish = (error?: Error, buf?: Buffer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(buf!);
+    };
+    const fail = () => finish(new Error("在线发音暂时不可用，请稍后重试或选择本机日语音色"));
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      finish(new Error("在线发音请求超时（15 秒），请稍后重试或选择本机日语音色"));
+    }, 15_000);
+    proc.stdout.on("data", (chunk: Buffer) => { if (!settled) chunks.push(chunk); });
+    proc.stderr.resume();
+    proc.on("error", fail);
+    proc.stdin.on("error", () => {
+      proc.kill("SIGKILL");
+      fail();
+    });
+    proc.on("close", (code) => {
+      if (code !== 0) return fail();
+      const buf = Buffer.concat(chunks);
+      if (buf.byteLength === 0) {
+        finish(new Error("在线发音未返回音频，请稍后重试或选择本机日语音色"));
+      } else {
+        finish(undefined, buf);
+      }
+    });
+    proc.stdin.end(JSON.stringify({ text, voice, rate: rateToPercent(rate) }));
   });
-  const chunks: Buffer[] = [];
-  let expired = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const stream = communicate.stream();
-  const collect = async () => {
-    for await (const chunk of stream) {
-      if (expired) break;
-      if (chunk.type === "audio" && chunk.data) chunks.push(Buffer.from(chunk.data));
-    }
-    const buf = Buffer.concat(chunks);
-    if (buf.byteLength === 0) throw new Error("在线发音未返回音频，请稍后重试或选择本机日语音色");
-    return buf;
-  };
-  try {
-    return await Promise.race([
-      collect(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          expired = true;
-          reject(new Error("在线发音请求超时（15 秒），请稍后重试或选择本机日语音色"));
-        }, 15_000);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-    if (expired) void stream.return().catch(() => {});
-  }
 }
 
 export function isKnownServerVoice(name: string): boolean {

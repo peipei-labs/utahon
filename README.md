@@ -73,7 +73,7 @@
 ```bash
 # 安装依赖
 npm install
-uv sync                    # yt-dlp 与 EJS 脚本（YouTube 使用已有 Node 22+）
+uv sync --frozen           # yt-dlp、EJS 和 Edge 日语朗读（YouTube 使用已有 Node 22+）
 
 # 配置 .env.local（推荐走个人 AI Gateway）
 AI_GATEWAY_BASE_URL=https://gateway.peipei.dev
@@ -90,6 +90,10 @@ npm run dev
 ```
 
 打开 `http://localhost:3000` 即可。
+
+网站使用单密码登录，会话保留 30 天。开发和部署环境都需要在不入库的 `.env.local` 配置 `UTAHON_PASSWORD_HASH` 和 `UTAHON_SESSION_SECRET`；缺失时拒绝登录。前者为 `32 位十六进制 salt:128 位十六进制 scrypt hash`（salt 按文本参与计算，N=16384、r=8、p=1、64 字节），后者为独立随机密钥，不少于 32 字符；不使用 `NEXT_PUBLIC_` 前缀。密码只在服务端校验，改密码会使旧会话失效。主页右上角可退出登录。
+
+Nanami、Keita 在线朗读使用锁定的 `edge-tts 7.3.1`，由项目 `.venv` 按需运行；支持页面现有速度设置，不保存临时语音文件。部署会在构建前执行 `uv sync --frozen`。`utahon.peipei.dev` 使用独立的 Cloudflare Access bypass 应用，由网站验证密码；其他子域仍沿用各自的 Access 规则。
 
 `AI_GATEWAY_BASE_URL` 填网关根地址，不要附加 `/v1` 或 `/v1beta`。网关地址和 key 必须同时设置；未设置时会继续读取 `GOOGLE_AI_API_KEY` 直连 Google。旧的 `GEMINI_MODEL` 仍可作为三个任务的统一模型配置，任务专用变量优先级更高。
 
