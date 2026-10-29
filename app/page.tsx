@@ -15,6 +15,7 @@ import { TabBar, TextPill } from "@/components/editorial-interactive";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { VoicePicker } from "@/components/voice-picker";
 import { SongLibrary } from "@/components/song-library";
+import { LogoutButton } from "@/components/logout-button";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default function HomePage() {
           <>
             <VoicePicker />
             <ThemeToggle />
+            <LogoutButton />
           </>
         }
       />
@@ -51,6 +53,7 @@ export default function HomePage() {
                 <span className="flex items-center gap-2 ml-3 pl-3 border-l border-rule">
                   <VoicePicker />
                   <ThemeToggle />
+                  <LogoutButton />
                   <TextPill
                     href="/new"
                     tone="solid"

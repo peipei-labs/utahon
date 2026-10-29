@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
+import { EventEmitter } from "node:events";
+import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import ts from "typescript";
 import * as voices from "../lib/tts-voices";
@@ -30,33 +32,98 @@ test("only lightweight Edge voices are enabled; all retired voices are rejected"
   }
 });
 
-test("server uses Edge even with stale Azure/VOICEVOX configuration, caches audio and rejects retired voices", async () => {
-  let requests = 0;
-  class FakeCommunicate {
-    async *stream() { requests++; yield { type: "audio", data: Buffer.from("test-mp3") }; }
-  }
+function synthesisHarness(mode: "success" | "rejected" | "empty" | "hanging" | "missing" = "success", globals: Record<string, unknown> = {}) {
+  const inputs: Array<{ text: string; voice: string; rate: string }> = [];
+  const commands: Array<{ command: string; args: string[]; shell: boolean }> = [];
+  const killed: string[] = [];
+  const spawn = (command: string, args: string[], options: { shell: boolean }) => {
+    commands.push({ command, args, shell: options.shell });
+    let input = "";
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: new Writable({ write(chunk, _encoding, callback) { input += chunk.toString(); callback(); } }),
+      kill(signal: string) { killed.push(signal); queueMicrotask(() => child.emit("close", null)); return true; },
+    });
+    child.stdin.on("finish", () => queueMicrotask(() => {
+      inputs.push(JSON.parse(input));
+      if (mode === "hanging") return;
+      if (mode === "missing") {
+        child.emit("error", Object.assign(new Error("missing interpreter"), { code: "ENOENT" }));
+        child.emit("close", -2);
+      } else if (mode === "rejected") {
+        child.stdout.write(Buffer.from("partial-audio"));
+        child.stderr.write("upstream URL with secret credentials");
+        child.emit("close", 1);
+      } else {
+        if (mode === "success") child.stdout.write(Buffer.from("test-mp3"));
+        child.emit("close", 0);
+      }
+    }));
+    return child;
+  };
   const server = loadWithMocks("../lib/tts-server.ts", {
-    "server-only": {}, "./tts-voices": voices, "edge-tts-universal": { Communicate: FakeCommunicate },
+    "server-only": {}, "./tts-voices": voices, "node:child_process": { spawn },
   }, {
-    process: { env: { AZURE_SPEECH_KEY: "test", AZURE_SPEECH_REGION: "test", VOICEVOX_URL: "http://disabled.test" } },
+    process: { cwd: process.cwd, platform: process.platform, env: { AZURE_SPEECH_KEY: "test", AZURE_SPEECH_REGION: "test", VOICEVOX_URL: "http://disabled.test" } },
     fetch: () => { throw new Error("disabled provider called"); },
+    ...globals,
   }) as unknown as typeof import("../lib/tts-server");
-  const first = await server.synthesizeAudio("こんにちは", voices.DEFAULT_SERVER_VOICE);
+  return { server, inputs, commands, killed };
+}
+
+test("server sends text through stdin, forwards slow speed, coalesces requests and caches audio", async () => {
+  const { server, inputs, commands } = synthesisHarness();
+  const [first, second] = await Promise.all([
+    server.synthesizeAudio("こんにちは", voices.DEFAULT_SERVER_VOICE, 0.6),
+    server.synthesizeAudio("こんにちは", voices.DEFAULT_SERVER_VOICE, 0.6),
+  ]);
   assert.equal(first.contentType, "audio/mpeg");
   assert.equal(first.buf.toString(), "test-mp3");
+  assert.equal(second.buf, first.buf);
+  await server.synthesizeAudio("こんにちは", voices.DEFAULT_SERVER_VOICE, 0.6);
+  assert.equal(commands.length, 1);
+  assert.deepEqual(inputs[0], { text: "こんにちは", voice: voices.DEFAULT_SERVER_VOICE, rate: "-40%" });
+  assert.equal(commands[0].shell, false);
+  assert.match(commands[0].command, /\.venv\/(bin\/python|Scripts\/python.exe)$/);
+  assert.deepEqual(Array.from(commands[0].args), [`${process.cwd()}/scripts/synthesize-tts.py`]);
+  await server.synthesizeAudio("こんにちは", voices.DEFAULT_SERVER_VOICE, 1);
   await server.synthesizeAudio("こんにちは", voices.DEFAULT_SERVER_VOICE);
-  assert.equal(requests, 1);
+  assert.equal(commands.length, 3);
+  assert.equal(inputs[1].rate, "+0%");
+  assert.equal(inputs[2].rate, "-15%");
   await assert.rejects(server.synthesizeAudio("こんにちは", "voicevox-0"), /停用/);
   await assert.rejects(server.synthesizeAudio("こんにちは", "ja-JP-AoiNeural"), /停用/);
-  assert.equal(requests, 1);
+  assert.equal(commands.length, 3);
 });
 
-test("server synthesis is bounded when the upstream stream never answers", async () => {
-  class HangingCommunicate { async *stream() { await new Promise(() => {}); } }
-  const server = loadWithMocks("../lib/tts-server.ts", {
-    "server-only": {}, "./tts-voices": voices, "edge-tts-universal": { Communicate: HangingCommunicate },
-  }, { setTimeout: (callback: () => void) => setTimeout(callback, 5) }) as unknown as typeof import("../lib/tts-server");
+test("server fails promptly on rejection without returning partial audio or upstream credentials", async () => {
+  let cleared = 0;
+  const { server, commands } = synthesisHarness("rejected", { clearTimeout: (timer: NodeJS.Timeout) => { cleared++; clearTimeout(timer); } });
+  await assert.rejects(server.synthesizeAudio("failed", voices.DEFAULT_SERVER_VOICE), (error: Error) => {
+    assert.match(error.message, /在线发音暂时不可用/);
+    assert.doesNotMatch(error.message, /secret|credentials|upstream/);
+    return true;
+  });
+  assert.equal(cleared, 1);
+  await assert.rejects(server.synthesizeAudio("failed", voices.DEFAULT_SERVER_VOICE));
+  assert.equal(commands.length, 2, "failed requests must be evicted from inflight and audio cache");
+});
+
+test("server reports missing tools and empty audio as failures", async () => {
+  await assert.rejects(synthesisHarness("missing").server.synthesizeAudio("test", voices.DEFAULT_SERVER_VOICE), /在线发音暂时不可用/);
+  await assert.rejects(synthesisHarness("empty").server.synthesizeAudio("test", voices.DEFAULT_SERVER_VOICE), /未返回音频/);
+});
+
+test("server kills a stalled synthesis process and clears its deadline", async () => {
+  let cleared = 0;
+  const { server, killed } = synthesisHarness("hanging", {
+    setTimeout: (callback: () => void) => setTimeout(callback, 5),
+    clearTimeout: (timer: NodeJS.Timeout) => { cleared++; clearTimeout(timer); },
+  });
   await assert.rejects(server.synthesizeAudio("timeout", voices.DEFAULT_SERVER_VOICE), /超时/);
+  assert.deepEqual(killed, ["SIGKILL"]);
+  assert.equal(cleared, 1);
 });
 
 test("API rejects retired voices without synthesis and returns readable, non-secret errors", async () => {
