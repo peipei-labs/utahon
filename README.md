@@ -79,7 +79,7 @@ uv sync --frozen           # yt-dlp、EJS 和 Edge 日语朗读（YouTube 使用
 # 配置 .env.local（推荐走个人 AI Gateway）
 AI_GATEWAY_BASE_URL=https://gateway.peipei.dev
 AI_GATEWAY_API_KEY=...
-GEMINI_ANALYZE_MODEL=gemini-3.1-flash-lite
+GEMINI_ANALYZE_MODEL=ag-gemini-3.8-flash-high
 GEMINI_SHARE_MODEL=gemini-3.1-flash-lite
 GEMINI_TRANSCRIBE_MODEL=ag-gemini-3.8-flash-high  # 个人网关订阅池别名；Google 直连需使用其公开模型 ID
 GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
@@ -97,6 +97,8 @@ npm run dev
 Nanami、Keita 在线朗读使用锁定的 `edge-tts 7.3.1`，由项目 `.venv` 按需运行；支持页面现有速度设置，不保存临时语音文件。部署会在构建前执行 `uv sync --frozen`。`utahon.peipei.dev` 使用独立的 Cloudflare Access bypass 应用，由网站验证密码；其他子域仍沿用各自的 Access 规则。
 
 `AI_GATEWAY_BASE_URL` 填网关根地址，不要附加 `/v1` 或 `/v1beta`。网关地址和 key 必须同时设置；未设置时会继续读取 `GOOGLE_AI_API_KEY` 直连 Google。旧的 `GEMINI_MODEL` 仍可作为三个任务的统一模型配置，任务专用变量优先级更高。
+
+`ag-gemini-3.8-flash-high` 是个人网关的 Antigravity 订阅池别名，Google 直连需改用该账号可用的公开模型 ID。整首歌词的翻译、分词与假名分析允许每次请求等待 120 秒；其他任务沿用各自超时。更换模型不会自动重新分析已保存歌曲，也不代表原歌词已经校对。
 
 ### 🎸 生成练习谱与分轨
 
