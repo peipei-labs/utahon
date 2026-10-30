@@ -15,6 +15,7 @@
 - ✍️ **原曲/翻唱双作者字段**：`Akashi Myu · 原曲 saewool · 31 行` 翻唱党友好
 - ⌨️ **极简输入**：频道贴 `@akashimyu`、重转贴 `BV1USAQzDEav` 或 `dQw4w9WgXcQ`，完整 URL 同样接受
 - 🎸 **弹唱练习台**：YouTube 或自有音频均可保留音高慢放、A/B 循环、段落循环和前后留白
+- 📖 **现成乐谱备选源**：歌曲页可跳转 Songsterr、人人钢琴网和 U-FRET 搜谱；已核对的参考谱会标明版本与免费范围。打开原站不会自动导入和弦或同步音频。
 - 🎼 **可编辑和弦草稿**：自动和弦贴到对应歌词行，支持常用指法图、简化和弦、Capo 换指法和 ChordPro 导出；不是含节奏、拨弦信息的完整六线谱
 - 🎚️ **四轨练习混音**：Demucs 分出人声、鼓、贝斯、其他四轨，可逐轨调音量、静音或独听
 - 🔊 **按需发音**：Edge Nanami / Keita，无需常驻语音模型；线上失败时有提示，有可用日语系统音色时可回退到本机朗读
@@ -59,7 +60,7 @@
 | 前端 | Next.js 16 (App Router + Turbopack) · React 19 · TypeScript 5 · Tailwind CSS 4 · framer-motion |
 | 后端 | Next.js Route Handlers · Node.js runtime · SSE ReadableStream |
 | 存储 | SQLite (better-sqlite3) · WAL mode |
-| AI | Gemini 3.1 Flash Lite（歌词分析 / 分享解析）· Gemini 3.6 Flash（音频转录）· AI Gateway 或 Google 直连 |
+| AI | Gemini（歌词分析、分享解析、音频转录的模型分别通过环境变量配置）· AI Gateway 或 Google 直连 |
 | 音乐分析 | lv-chordia 1.1.0 · allin1 1.1.0 · Demucs 4 · PyTorch（M5 本地一次性运行） |
 | 歌词源 | [lrclib.net](https://lrclib.net) |
 | 音频源 | yt-dlp (uv-managed venv) · YouTube + Bilibili cookies |
@@ -80,7 +81,7 @@ AI_GATEWAY_BASE_URL=https://gateway.peipei.dev
 AI_GATEWAY_API_KEY=...
 GEMINI_ANALYZE_MODEL=gemini-3.1-flash-lite
 GEMINI_SHARE_MODEL=gemini-3.1-flash-lite
-GEMINI_TRANSCRIBE_MODEL=gemini-3.6-flash
+GEMINI_TRANSCRIBE_MODEL=ag-gemini-3.8-flash-high  # 个人网关订阅池别名；Google 直连需使用其公开模型 ID
 GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
 YOUTUBE_COOKIES_PATH=./account_auth/www.youtube.com_cookies.txt    # 可选
 BILIBILI_COOKIES_PATH=./account_auth/www.bilibili.com_cookies.txt  # 可选
