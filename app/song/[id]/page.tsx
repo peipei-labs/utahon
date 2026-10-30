@@ -25,6 +25,7 @@ import {
 import { TabBar, TextPill } from "@/components/editorial-interactive";
 import { PracticeProvider } from "@/components/practice-context";
 import { PracticeStudio } from "@/components/practice-studio";
+import { ScoreSources } from "@/components/score-sources";
 
 export const dynamic = "force-dynamic";
 
@@ -167,6 +168,8 @@ export default async function SongPage({
             {" "}<a href={song.analyzed.transcriptionSourceUrl} target="_blank" rel="noopener noreferrer" className="underline">原视频</a>。
           </p>
         )}
+
+        <ScoreSources song={{ title: song.title, artist: song.artist, originalArtist: song.originalArtist }} />
 
         <PracticeStudio
           title={song.title}
