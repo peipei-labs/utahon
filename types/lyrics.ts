@@ -1,4 +1,5 @@
 import type { LyricsSourceMeta } from "./lyrics-source";
+import type { SongInterpretation, SongThemeTag } from "./song-interpretation";
 
 export type ParsedLine = {
   startTime: number;
@@ -47,10 +48,12 @@ export type SongMeta = {
   youtubeId: string;
   source: SongSource;
   durationSec: number;
+  themeTags?: SongThemeTag[];
 };
 
 export type SongFull = SongMeta & {
   lyrics: string;
   analyzed: AnalyzedSong;
   updatedAt: number;
+  interpretation?: SongInterpretation;
 };
