@@ -4,14 +4,13 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Volume2, Copy, Check, Music4, Star, Loader2 } from "lucide-react";
 import type { AnalyzedLine, Token } from "@/types/lyrics";
+import type { ChordEvent } from "@/types/practice";
 import { cn } from "@/lib/utils";
 import { useTtsToggle } from "@/lib/use-tts-toggle";
 import { usePlayer } from "./player-context";
-import { usePractice } from "./practice-context";
 import { useSongInfo } from "./song-info-context";
 import { Smallcaps } from "./editorial-shell";
-import { ChordDiagram } from "./chord-diagram";
-import { simplifyChordSymbol, transposeChord } from "@/lib/practice-schema";
+import { ChordStrip } from "./chord-strip";
 
 type StarState = "idle" | "saving" | "saved" | "err";
 
@@ -183,20 +182,16 @@ function TokenChip({ token }: { token: Token }) {
 export function LyricLine({
   line,
   index,
+  chords,
 }: {
   line: AnalyzedLine;
   index: number;
+  chords: ChordEvent[];
 }) {
   const [copied, setCopied] = useState(false);
-  const [openChordId, setOpenChordId] = useState<string | null>(null);
   const { speaking, toggle } = useTtsToggle();
   const player = usePlayer();
-  const { practice } = usePractice();
   const canPlaySegment = Boolean(player?.available) && line.endTime - line.startTime > 0.3;
-  const chords = practice.data.chords.filter((chord) =>
-    chord.lineIndex === index ||
-    (chord.lineIndex === undefined && chord.startTime >= line.startTime && chord.startTime < line.endTime)
-  );
 
   async function handleCopy() {
     try {
@@ -222,45 +217,7 @@ export function LyricLine({
       </div>
 
       <div className="min-w-0">
-        {chords.length > 0 ? (
-          <div className="relative flex flex-wrap gap-x-2 md:gap-x-3 gap-y-1 mb-1.5 min-h-6">
-            {chords.map((chord) => {
-              const sourceSymbol = practice.data.chordDisplay === "simple"
-                ? simplifyChordSymbol(chord.symbol)
-                : chord.symbol;
-              const shape = transposeChord(sourceSymbol, -practice.data.capo);
-              const active = Boolean(
-                player && player.currentTime >= chord.startTime && player.currentTime < chord.endTime
-              );
-              return (
-                <span key={chord.id} className="md:relative">
-                  <button
-                    type="button"
-                    onClick={() => setOpenChordId((value) => value === chord.id ? null : chord.id)}
-                    className={cn(
-                      "min-w-11 min-h-11 md:min-w-0 md:min-h-0 font-mono text-[12px] md:text-[13px] font-medium border-b transition px-0.5",
-                      active ? "text-red border-red" : "text-ink-soft border-rule hover:text-ink hover:border-ink"
-                    )}
-                    aria-label={`查看 ${shape} 吉他指法`}
-                    aria-expanded={openChordId === chord.id}
-                  >
-                    {shape}
-                  </button>
-                  {openChordId === chord.id ? (
-                    <span className="absolute left-0 top-full mt-2 z-30 bg-paper border border-ink shadow-[5px_5px_0_0_var(--rule)] p-2 text-ink">
-                      <ChordDiagram symbol={shape} />
-                      {practice.data.capo > 0 ? (
-                        <span className="block font-mono text-[8px] tracking-[0.12em] uppercase text-ink-mute text-center pb-1">
-                          Capo {practice.data.capo} · sounds {chord.symbol}
-                        </span>
-                      ) : null}
-                    </span>
-                  ) : null}
-                </span>
-              );
-            })}
-          </div>
-        ) : null}
+        <ChordStrip chords={chords} startTime={line.startTime} endTime={line.endTime} />
         <div className="font-serif-jp jp text-[22px] md:text-[28px] leading-[1.55] text-ink font-medium break-words">
           {line.tokens.length > 0 ? (
             line.tokens.map((t, i) => <TokenChip key={i} token={t} />)
