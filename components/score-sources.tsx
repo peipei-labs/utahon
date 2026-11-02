@@ -30,7 +30,7 @@ export function ScoreSources({ song }: { song: ScoreSong }) {
       </div>
 
       {scores.length > 0 ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 grid gap-3">
           {scores.map((score) => (
             <article key={score.url} className="min-w-0 border border-rule bg-paper p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -51,7 +51,7 @@ export function ScoreSources({ song }: { song: ScoreSong }) {
 
       <details open={scores.length === 0} className="mt-4 border-t border-rule pt-3">
         <summary className="cursor-pointer text-[13px] text-ink hover:text-red">到备选网站搜索《{searchSong.title}》</summary>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="mt-3 grid gap-3">
           {SCORE_SOURCES.map((source) => (
             <div key={source.id} className="min-w-0">
               <a href={source.search(searchSong)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-serif text-[15px] text-ink underline decoration-rule underline-offset-4 hover:text-red">
@@ -63,7 +63,7 @@ export function ScoreSources({ song }: { song: ScoreSong }) {
           ))}
         </div>
       </details>
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-mute">链接在新标签页打开。原站看谱不会自动导入下方练习台；搜索结果仍需核对是否为同一首歌。</p>
+      <p className="mt-3 text-[11px] leading-relaxed text-ink-mute">链接在新标签页打开。原站看谱不会自动导入练习谱；搜索结果仍需核对是否为同一首歌。</p>
     </section>
   );
 }

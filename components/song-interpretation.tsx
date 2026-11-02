@@ -6,31 +6,36 @@ import { BookOpen, Loader2 } from "lucide-react";
 import type { InterpretationContext, SongInterpretation } from "@/types/song-interpretation";
 import { SongThemeTags } from "./song-theme-tags";
 
-export function SongInterpretationPanel({ songId, updatedAt, interpretation, hasLyrics }: {
+type InterpretationInput = {
   songId: string;
   updatedAt: number;
   interpretation?: SongInterpretation;
   hasLyrics: boolean;
-}) {
+};
+
+export function useSongInterpretation({ songId, updatedAt, interpretation, hasLyrics }: InterpretationInput) {
   const router = useRouter();
   const inFlight = useRef(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, startTransition] = useTransition();
   const [error, setError] = useState("");
   const busy = loading || refreshing;
+  const [generated, setGenerated] = useState<{ interpretation: SongInterpretation; updatedAt: number } | null>(null);
+  const current = generated && generated.updatedAt >= updatedAt ? generated : { interpretation, updatedAt };
 
   async function interpret() {
-    if (inFlight.current || busy) return;
+    if (inFlight.current || busy || !hasLyrics) return;
     inFlight.current = true;
     setLoading(true);
     setError("");
     try {
       const response = await fetch(`/api/songs/${songId}/interpretation`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updatedAt }), signal: AbortSignal.timeout(150_000),
+        body: JSON.stringify({ updatedAt: current.updatedAt }), signal: AbortSignal.timeout(150_000),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "解读未完成，请稍后重试");
+      setGenerated({ interpretation: data.interpretation, updatedAt: data.updatedAt });
       startTransition(() => router.refresh());
     } catch (cause) {
       setError(cause instanceof Error && cause.name === "TimeoutError"
@@ -42,8 +47,16 @@ export function SongInterpretationPanel({ songId, updatedAt, interpretation, has
     }
   }
 
+  return { busy, error, interpret, interpretation: current.interpretation };
+}
+
+export function SongInterpretationPanel({ action, hasLyrics }: {
+  action: ReturnType<typeof useSongInterpretation>;
+  hasLyrics: boolean;
+}) {
+  const { busy, error, interpret, interpretation } = action;
   return (
-    <section aria-labelledby="interpretation-heading" className="mt-6 border border-rule p-4 md:p-6 bg-paper-deep/30 min-w-0 [overflow-wrap:anywhere]">
+    <section aria-labelledby="interpretation-heading" className="min-w-0 [overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 id="interpretation-heading" className="font-serif text-xl text-ink flex items-center gap-2">
@@ -68,7 +81,7 @@ export function SongInterpretationPanel({ songId, updatedAt, interpretation, has
           {interpretation.stale && <p className="text-sm text-red mb-3">歌词已变化，以下是旧版本的解读；请重新解读以更新主题标签。</p>}
           <p className="font-serif text-lg md:text-xl leading-relaxed text-ink">{interpretation.summary}</p>
           <SongThemeTags tags={interpretation.tags.map(item => item.tag)} />
-          <div className="mt-5 grid md:grid-cols-2 gap-5 md:gap-8 text-sm leading-7 text-ink-soft">
+          <div className="mt-5 grid gap-5 text-sm leading-7 text-ink-soft">
             <div><h3 className="font-medium text-ink mb-1">主要想表达什么</h3><p className="whitespace-pre-line">{interpretation.mainMessage}</p></div>
             <div><h3 className="font-medium text-ink mb-1">情绪如何变化</h3><p className="whitespace-pre-line">{interpretation.emotionalArc}</p></div>
           </div>
