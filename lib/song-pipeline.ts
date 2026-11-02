@@ -1,4 +1,4 @@
-import { fetchLrclibLyrics } from "./lrclib";
+import { searchLyrics } from "./lyrics-sources";
 import { analyzeLyrics } from "./analyze-pipeline";
 import { createSong, existsByYoutubeId, existsByLrclibId } from "./songs";
 import { extractYoutubeId } from "./youtube";
@@ -55,17 +55,21 @@ export async function processSong(input: SongInput): Promise<SongOutcome> {
   }
 
   try {
-    const lrclib = await fetchLrclibLyrics({
+    const lookup = await searchLyrics({
       title: songName,
       artist: input.artist,
-      durationSec: input.video?.duration,
+      durationSec: input.video?.duration ?? undefined,
     });
 
-    if (lrclib && existsByLrclibId(lrclib.id)) {
+    if (lookup.kind === "unavailable") {
+      return { kind: "fail", songName, reason: "歌词来源暂时无法访问，不能判断没有歌词；请稍后重试或手工提供原文" };
+    }
+    const found = lookup.kind === "found" ? lookup.candidate : null;
+    if (found?.lrclibId && found.source.provider === "lrclib" && existsByLrclibId(found.lrclibId)) {
       return { kind: "skip-existing", songName, reason: "lrclib_id" };
     }
 
-    if (!lrclib) {
+    if (!found) {
       if (!input.video) {
         return { kind: "fail", songName, reason: "no_lyrics_no_video" };
       }
@@ -93,25 +97,26 @@ export async function processSong(input: SongInput): Promise<SongOutcome> {
     const cleaned = stripTopic(rawUploader);
     const displayArtist =
       input.source === "netease" || input.source === "share"
-        ? providedArtist || cleaned || rawUploader || lrclib.artistName
-        : rawUploader || lrclib.artistName;
+        ? providedArtist || cleaned || rawUploader || found.artistName
+        : rawUploader || found.artistName;
 
     const analyzed = await analyzeLyrics({
-      lyrics: lrclib.lyrics,
+      lyrics: found.lyrics,
       title: songName,
       artist: displayArtist,
       youtubeUrl,
     });
-    analyzed.originalArtist = lrclib.artistName;
+    analyzed.originalArtist = found.artistName;
+    analyzed.lyricsSource = found.source;
 
     const songId = createSong({
       title: songName,
       artist: displayArtist,
-      originalArtist: lrclib.artistName,
-      lyrics: lrclib.lyrics,
+      originalArtist: found.artistName,
+      lyrics: found.lyrics,
       analyzed,
       youtubeUrl,
-      lrclibId: lrclib.id,
+      lrclibId: found.source.provider === "lrclib" ? found.lrclibId : undefined,
       source: input.source,
       durationSec: input.video?.duration ?? null,
     });
@@ -121,9 +126,9 @@ export async function processSong(input: SongInput): Promise<SongOutcome> {
       songId,
       songName,
       artistName: displayArtist,
-      originalArtist: lrclib.artistName,
+      originalArtist: found.artistName,
       lines: analyzed.lines.length,
-      hasTimestamps: lrclib.hasTimestamps,
+      hasTimestamps: found.hasTimestamps,
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

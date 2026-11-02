@@ -200,7 +200,7 @@ export default function NeteaseImportPage() {
                   <span className="font-serif italic text-red font-medium shrink-0">
                     03.
                   </span>
-                  lrclib 拉歌词 · Gemini 注音 / 罗马音 / 词性 / 翻译
+                  查找现成歌词 · Gemini 注音 / 罗马音 / 词性 / 翻译
                 </li>
                 <li className="flex gap-3">
                   <span className="font-serif italic text-red font-medium shrink-0">
@@ -376,7 +376,7 @@ export default function NeteaseImportPage() {
       <Colophon>
         <span>Import · netease playlist</span>
         <span className="text-center">
-          —— netease · yt-dlp · lrclib · gemini ——
+          —— netease · yt-dlp · 现成歌词 · gemini ——
         </span>
         <span className="hidden sm:inline text-right">SSE · auto-resume</span>
       </Colophon>

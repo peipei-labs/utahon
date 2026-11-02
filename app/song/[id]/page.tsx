@@ -161,7 +161,8 @@ export default async function SongPage({
         </section>
 
         <SongEditor key={song.id} songId={song.id} lyrics={song.lyrics}
-          youtubeUrl={song.analyzed.youtubeUrl} updatedAt={song.updatedAt} />
+          title={song.title} artist={song.originalArtist || song.artist} durationSec={song.durationSec ?? undefined}
+          lyricsSource={song.analyzed.lyricsSource} youtubeUrl={song.analyzed.youtubeUrl} updatedAt={song.updatedAt} />
         {song.analyzed.transcriptionSourceUrl?.includes("bilibili.com") && (
           <p className="mt-2 text-sm text-ink-soft">
             当前来源为 Bilibili，不能在此内嵌视频；可在下方「从视频取得音频」保存同版音频练习，或前往
@@ -221,7 +222,7 @@ export default async function SongPage({
           —— {song.linesCount} lines ——
         </span>
         <span className="hidden sm:inline text-right">
-          lrclib · gemini · yt-dlp
+          现成歌词 · gemini · yt-dlp
         </span>
       </Colophon>
 

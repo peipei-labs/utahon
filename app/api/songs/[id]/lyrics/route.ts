@@ -1,6 +1,7 @@
 import { analyzeLyrics } from "@/lib/analyze-pipeline";
 import { isGeminiTimeoutError } from "@/lib/gemini-client";
 import { getSong, updateSongLyrics } from "@/lib/songs";
+import { parseLyricsSource } from "@/lib/lyrics-provenance";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -9,13 +10,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const song = getSong(id);
   if (!song) return Response.json({ error: "歌曲不存在" }, { status: 404 });
-  const body = await req.json().catch(() => null) as { lyrics?: unknown; updatedAt?: unknown } | null;
+  const body = await req.json().catch(() => null) as { lyrics?: unknown; updatedAt?: unknown; lyricsSource?: unknown } | null;
   if (typeof body?.lyrics !== "string" || !body.lyrics.trim() || body.lyrics.length > 100_000 ||
       !Number.isSafeInteger(body.updatedAt)) {
     return Response.json({ error: "请输入有效歌词（最多 100000 字符），并提供当前歌曲版本" }, { status: 400 });
   }
   if (body.updatedAt !== song.updatedAt) {
     return Response.json({ error: "歌曲已更新，请刷新后重新编辑；未覆盖已有内容" }, { status: 409 });
+  }
+  const lyricsSource = parseLyricsSource(body.lyricsSource);
+  if (body.lyricsSource !== undefined && !lyricsSource) {
+    return Response.json({ error: "歌词来源信息无效，请重新查找或手工录入" }, { status: 400 });
   }
   try {
     const analyzed = await analyzeLyrics({
@@ -26,6 +31,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     });
     analyzed.originalArtist = song.originalArtist;
     analyzed.transcriptionSourceUrl = song.analyzed.transcriptionSourceUrl;
+    analyzed.lyricsSource = lyricsSource ?? (body.lyrics === song.lyrics
+      ? song.analyzed.lyricsSource
+      : song.analyzed.lyricsSource ? { ...song.analyzed.lyricsSource, edited: true } : { provider: "manual" });
     if (!updateSongLyrics(id, body.lyrics, analyzed, song.updatedAt)) {
       return Response.json({ error: "分析期间歌曲已被修改，请刷新后重试；未覆盖已有内容" }, { status: 409 });
     }

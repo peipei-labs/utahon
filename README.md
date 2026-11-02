@@ -8,8 +8,8 @@
 
 ## ✨ 特色
 
-- 🤖 **lrclib + Gemini 双引擎标注**：lrclib 拉歌词，Gemini 3.1 Flash Lite 自动生成汉字注音、罗马音、逐词词性、自然中文翻译
-- 🎬 **YouTube / Bilibili 双源**：yt-dlp 抓音频流，Gemini 多模态转录 lrclib 未收录的翻唱歌；cookies 方案绕过两家反爬
+- 🤖 **现成歌词优先**：先从 UtaTen、歌ネット、LRCLIB 查找原文，再由 Gemini 生成汉字注音、罗马音、逐词词性、自然中文翻译
+- 🎬 **YouTube / Bilibili 双源**：yt-dlp 抓音频流，未找到现成歌词时可手工补充，或用 Gemini 多模态转录生成待核对草稿
 - 🔁 **SSE 流式批量导入**：频道 URL 一贴 实时进度逐首滚动 避开 Cloudflare 100s 超时
 - 🧯 **Gemini 模型容错**：Primary 503 过载自动降级到 Fallback 模型 单进程记忆避免反复试错
 - ✍️ **原曲/翻唱双作者字段**：`Akashi Myu · 原曲 saewool · 31 行` 翻唱党友好
@@ -19,6 +19,8 @@
 - 🎼 **可编辑和弦草稿**：自动和弦贴到对应歌词行，支持常用指法图、简化和弦、Capo 换指法和 ChordPro 导出；不是含节奏、拨弦信息的完整六线谱
 - 🎚️ **四轨练习混音**：Demucs 分出人声、鼓、贝斯、其他四轨，可逐轨调音量、静音或独听
 - 🔊 **按需发音**：Edge Nanami / Keita，无需常驻语音模型；线上失败时有提示，有可用日语系统音色时可回退到本机朗读
+
+新建页与歌曲页提供「查找现成歌词」：按歌名与歌手搜索，也可粘贴 UtaTen / 歌ネット歌词页链接。先预览，再填入编辑框；已保存歌曲只有在「重新分析并保存」成功后才替换原文。页面记录原文来源与链接，手工修改会另作标记。只有文本逐行对应时才补充 LRCLIB 时间轴；没有可靠时间轴的歌词仍可阅读与朗读，但不能逐句定位原曲。来源返回 403、人机验证或临时故障时会显示无法访问，不会当作未收录。
 
 自动转录、翻译和和弦都可能出错。歌曲页提供歌词纠错与播放来源编辑；修改歌词后重新分析，失败时保留原内容。未人工核对的内容不要当作标准答案。模型输出会检查行数、顺序与词语拼回原文，但这些检查不能代替听歌校对。
 
@@ -62,7 +64,7 @@
 | 存储 | SQLite (better-sqlite3) · WAL mode |
 | AI | Gemini（歌词分析、分享解析、音频转录的模型分别通过环境变量配置）· AI Gateway 或 Google 直连 |
 | 音乐分析 | lv-chordia 1.1.0 · allin1 1.1.0 · Demucs 4 · PyTorch（M5 本地一次性运行） |
-| 歌词源 | [lrclib.net](https://lrclib.net) |
+| 歌词源 | [UtaTen](https://utaten.com)、[歌ネット](https://www.uta-net.com)、[LRCLIB](https://lrclib.net) |
 | 音频源 | yt-dlp (uv-managed venv) · YouTube + Bilibili cookies |
 | 反向代理 | Caddy 2.11 · Cloudflare Origin Certificate · HTTP/3 |
 | CI/CD | GitHub Actions (appleboy/ssh-action) · systemd |

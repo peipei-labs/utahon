@@ -74,7 +74,7 @@ export default function ImportHubPage() {
             </h2>
             <p className="mt-3 font-serif text-[14px] md:text-[15px] text-ink-soft leading-[1.6] max-w-[60ch]">
               粘贴 QQ / 网易云 / Apple / Spotify 等平台分享出来的纯文本，AI
-              识别 → 校对歌名歌手 → lrclib + Gemini 注音翻译入库。日常学一首新歌走这里。
+              识别 → 校对歌名歌手 → 查找现成歌词 + Gemini 注音翻译入库。日常学一首新歌走这里。
             </p>
             <div className="mt-5 p-3.5 border border-rule bg-paper/60 font-mono text-[11px] tracking-tight text-ink-mute italic leading-[1.55] break-all">
               夏川椎菜 (なつかわ しいな)/HoneyWorks《#超絶かわいい (#超绝可爱)》https://c6.y.qq.com/... @QQ音乐
@@ -153,7 +153,7 @@ export default function ImportHubPage() {
           </li>
           <li className="flex gap-2">
             <span className="font-serif italic text-red font-medium shrink-0">03.</span>
-            三种最终走同一条 lrclib + Gemini 管道
+            三种方式都会先找现成歌词，再生成读音和翻译
           </li>
         </ul>
       </section>

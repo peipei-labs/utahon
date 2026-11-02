@@ -27,17 +27,26 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     const { PUT: editPractice } = await import("../app/api/songs/[id]/practice/route");
     const { PATCH: editSource } = await import("../app/api/songs/[id]/route");
     const { POST: ingestShare } = await import("../app/api/import/share/ingest/route");
+    const { POST: searchLyrics } = await import("../app/api/lyrics/search/route");
+    const { POST: newSong } = await import("../app/api/songs/route");
     const { NextRequest } = await import("next/server");
     let mode: "invalid" | "valid" | "race" = "invalid";
+    let lyricsUnavailable = false;
+    let modelCalls = 0;
     const duringAnalysis = () => {
       assert.equal(updateSongSource(id, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", initial.updatedAt), true);
     };
     t.mock.timers.enable({ apis: ["setTimeout"] });
     t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
+      if (url.startsWith("https://utaten.com/") || url.startsWith("https://www.uta-net.com/")) {
+        return lyricsUnavailable ? new Response("temporarily unavailable", { status: 503 })
+          : new Response("<html><body><p>該当する歌詞がありません</p></body></html>");
+      }
       if (url.includes("lrclib.net/api/get")) return new Response("{}", { status: 404 });
       if (url.includes("lrclib.net/api/search")) return Response.json([]);
       assert.ok(url.startsWith("https://offline-test.invalid/"), "no external request is permitted");
+      modelCalls++;
       if (mode === "race") duringAnalysis();
       const lines = mode === "invalid" ? [] : [{ original: "い", translation: "示例",
         tokens: [{ surface: "い", furigana: "い", meaning: "示例", pos: "noun" }] }];
@@ -56,7 +65,8 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(mixed.status, 502);
     assert.match((await mixed.json()).error, /时间标签/);
     assert.deepEqual(getSong(id), initial);
-    const body = { lyrics: "[00:10]い", updatedAt: initial.updatedAt };
+    const lyricsSource = { provider: "utaten", url: "https://utaten.com/lyric/test123/", fetchedAt: 1700000000000 };
+    const body = { lyrics: "[00:10]い", lyricsSource, updatedAt: initial.updatedAt };
     const request = () => new Request("http://localhost/api/test", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const failed = await editLyrics(request(), ctx);
@@ -78,6 +88,27 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(saved.status, 200);
     assert.equal(getSong(id)!.lyrics, body.lyrics);
     assert.equal(getSong(id)!.analyzed.lines[0].startTime, 10);
+    assert.deepEqual(getSong(id)!.analyzed.lyricsSource, lyricsSource);
+    const unchanged = await editLyrics(new Request("http://localhost/api/test", { method: "POST",
+      body: JSON.stringify({ lyrics: body.lyrics, updatedAt: getSong(id)!.updatedAt }),
+    }), ctx);
+    assert.equal(unchanged.status, 200);
+    assert.deepEqual(getSong(id)!.analyzed.lyricsSource, lyricsSource, "reanalyzing retains provenance");
+    const manualEdit = await editLyrics(new Request("http://localhost/api/test", { method: "POST",
+      body: JSON.stringify({ lyrics: "[00:11]い", updatedAt: getSong(id)!.updatedAt }),
+    }), ctx);
+    assert.equal(manualEdit.status, 200);
+    assert.deepEqual(getSong(id)!.analyzed.lyricsSource, { ...lyricsSource, edited: true });
+    const invalidSource = await editLyrics(new Request("http://localhost/api/test", { method: "POST",
+      body: JSON.stringify({ lyrics: "い", updatedAt: getSong(id)!.updatedAt,
+        lyricsSource: { provider: "utaten", url: "javascript:alert(1)" } }),
+    }), ctx);
+    assert.equal(invalidSource.status, 400);
+    const created = await newSong(new NextRequest("http://localhost/api/songs", { method: "POST",
+      body: JSON.stringify({ title: "新建示例", artist: "Rin", lyrics: "い", lyricsSource }),
+    }));
+    assert.equal(created.status, 201);
+    assert.deepEqual(getSong((await created.json()).id)!.analyzed.lyricsSource, lyricsSource);
     const sourceConflict = await editSource(new NextRequest("http://localhost/api/test", {
       method: "PATCH", body: JSON.stringify({ youtubeUrl: "KNXrHFvX1Gs", updatedAt: initial.updatedAt }),
     }), ctx);
@@ -91,6 +122,27 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(outcome.kind, "placeholder");
     assert.equal(getSong(outcome.songId)!.youtubeId, "KNXrHFvX1Gs");
     assert.equal(getSong(outcome.songId)!.artist, "Rin");
+
+    const beforeLookup = modelCalls;
+    const lookup = () => new Request("http://localhost/api/lyrics/search", { method: "POST",
+      body: JSON.stringify({ title: "示例曲", artist: "Rin" }),
+    });
+    assert.equal((await (await searchLyrics(lookup())).json()).kind, "not-found");
+    lyricsUnavailable = true;
+    assert.equal((await (await searchLyrics(lookup())).json()).kind, "unavailable");
+    assert.equal(modelCalls, beforeLookup, "search never sends lyric text to a model");
+    const inaccessible = await ingestShare(new Request("http://localhost/api/import/share/ingest", {
+      method: "POST", body: JSON.stringify({ title: "另一个示例", artist: "Rin", sourceUrl: "https://youtu.be/abcdefghijk" }),
+    }));
+    const inaccessibleResult = await inaccessible.json();
+    assert.equal(inaccessibleResult.kind, "fail", "upstream failure must not create a no-lyrics placeholder");
+    assert.match(inaccessibleResult.reason, /无法访问/);
+    assert.equal(inaccessibleResult.songId, undefined);
+    lyricsUnavailable = false;
+    const badLookup = await searchLyrics(new Request("http://localhost/api/lyrics/search", { method: "POST",
+      body: JSON.stringify({ title: [], artist: "Rin" }),
+    }));
+    assert.equal(badLookup.status, 400);
 
     const bvUrl = "https://www.bilibili.com/video/BV1xx4y1m7rE/";
     const bvId = createSong({ title: "BV 歌曲", artist: "Rin", lyrics: "あ",
@@ -131,6 +183,7 @@ test("isolated song routes preserve share sources, reject invalid analysis and a
     assert.equal(confirmed.status, 200);
     assert.deepEqual(downloads, [bvUrl]);
     assert.equal(getSong(bvId)!.analyzed.transcriptionSourceUrl, bvUrl);
+    assert.equal(getSong(bvId)!.analyzed.lyricsSource?.provider, "audio");
     assert.equal(getSong(bvId)!.youtubeId, "");
     for (const [operation, sourceInput] of [
       ["source", "https://youtu.be/KNXrHFvX1Gs/"], ["source", ""],
