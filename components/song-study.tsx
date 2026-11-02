@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BookOpen, FolderOpen, Guitar, Settings2, X, Play, Pause, Repeat2, Loader2, ArrowLeft } from "lucide-react";
+import { BookOpen, FolderOpen, Guitar, Settings2, X, Play, Pause, Repeat2, Loader2, ArrowLeft, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildChordTimeline } from "@/lib/chord-timeline";
 import type { SongFull } from "@/types/lyrics";
@@ -66,10 +66,13 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
 }) {
   const { practice } = usePractice();
   const [panel, setPanel] = useState<StudyPanel | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const hasLyrics = song.analyzed.lines.length > 0;
+  const japaneseLyrics = song.analyzed.lines.map(line => line.original).join("\n");
+  const canCopyLyrics = japaneseLyrics.trim().length > 0;
   const scoreRows = useMemo(() => buildChordTimeline(song.analyzed.lines, practice.data.chords, song.durationSec),
     [song.analyzed.lines, practice.data.chords, song.durationSec]);
   const action = useSongInterpretation({ songId: song.id, updatedAt: song.updatedAt, interpretation: song.interpretation, hasLyrics });
@@ -90,6 +93,23 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (copyState !== "copied") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  async function copyJapaneseLyrics() {
+    if (!canCopyLyrics || copyState === "copying") return;
+    setCopyState("copying");
+    try {
+      await navigator.clipboard.writeText(japaneseLyrics);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }
+
   function openPanel(next: StudyPanel) {
     if (!isOpen) triggerRef.current = document.activeElement as HTMLElement | null;
     if (next !== panel) contentRef.current?.scrollTo({ top: 0 });
@@ -101,7 +121,8 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
     return TOOLS.map(({ id, label, icon: Icon }) => (
       <button key={id} type="button" onClick={() => openPanel(id)} aria-label={label}
         aria-haspopup={inDialog ? undefined : "dialog"} aria-pressed={panel === id}
-        className={cn("relative flex min-h-11 min-w-11 flex-1 items-center justify-center gap-1.5 px-2 text-xs transition md:min-w-20 md:px-3",
+        className={cn("relative flex min-h-11 min-w-11 flex-1 items-center justify-center text-xs transition md:min-w-20 md:px-3",
+          inDialog ? "gap-1.5 px-2" : "gap-1 px-1",
           panel === id ? "bg-ink text-paper" : "text-ink-soft hover:bg-paper-deep hover:text-ink")}>
         {id === "interpretation" && action.busy ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Icon className="size-4 shrink-0" strokeWidth={1.6} />}
         <span className="whitespace-nowrap">{label}</span>
@@ -132,11 +153,23 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
         } />
       </div>
 
-      <div className="sticky top-0 z-30 mb-5 border-y border-ink bg-paper pt-2 shadow-[0_4px_0_var(--paper)] md:flex md:items-center md:justify-between md:gap-6 md:py-2" aria-label="学习工具条">
+      <div className="sticky top-0 z-30 mb-5 border-y border-ink bg-paper pt-2 shadow-[0_4px_0_var(--paper)] lg:flex lg:items-center lg:justify-between lg:gap-6 lg:py-2" aria-label="学习工具条">
         <PlaybackControls onPractice={() => openPanel("practice")} />
-        <div className="mt-1 flex border-t border-rule md:mt-0 md:shrink-0 md:border-t-0 md:border-l" aria-label="歌曲工具">{toolButtons()}</div>
+        <div className="mt-1 grid grid-cols-5 border-t border-rule lg:mt-0 lg:flex lg:shrink-0 lg:border-t-0 lg:border-l" aria-label="歌曲工具">
+          {toolButtons()}
+          <button type="button" onClick={() => void copyJapaneseLyrics()} disabled={!canCopyLyrics || copyState === "copying"}
+            title="复制日语歌词" aria-label="复制日语歌词"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-1 px-1 text-xs text-ink-soft transition hover:bg-paper-deep hover:text-ink disabled:opacity-40 md:min-w-20 md:px-3">
+            {copyState === "copying" ? <Loader2 className="size-4 shrink-0 animate-spin" /> : copyState === "copied" ? <Check className="size-4 shrink-0 text-red" /> : <Copy className="size-4 shrink-0" strokeWidth={1.6} />}
+            <span className="whitespace-nowrap">{copyState === "copied" ? "已复制" : "复制"}</span>
+          </button>
+        </div>
         <span role="status" className="sr-only">{action.busy ? "歌曲解读正在进行，可以继续学习" : action.error ? "歌曲解读失败，请打开解读查看" : ""}</span>
       </div>
+
+      <p role="status" aria-live="polite" className={copyState === "error" ? "mb-4 text-sm text-red" : "sr-only"}>
+        {copyState === "copied" ? "已复制日语歌词" : copyState === "error" ? "复制失败，请允许浏览器访问剪贴板后重试。" : ""}
+      </p>
 
       <section aria-label="歌词与和弦" className="mx-auto max-w-4xl">
         {scoreRows.map(row => row.kind === "lyrics"
