@@ -54,6 +54,24 @@ test("saved or imported nearest-line anchors do not move instrumental chords int
   assert.deepEqual(display(buildChordTimeline(lines, chords.map(c => ({ ...c, lineIndex: 99, tokenIndex: 99 })), 30)), display(unanchored));
 });
 
+test("breathing gaps preserve every chord without adding sections or extending playback times", () => {
+  const lines = [line(1, 3), line(3.3, 5), line(7, 9)];
+  const originalLines = structuredClone(lines);
+  const chords = [chord("intro", 0, 1), chord("first", 1, 3), chord("breath", 3, 3.3),
+    chord("second", 3.3, 5), chord("interlude", 5, 7), chord("third", 7, 9), chord("tail", 9, 9.5)];
+  const rows = buildChordTimeline(lines, chords, 9.5);
+  assert.deepEqual(display(rows), [
+    { kind: "instrumental", label: "前奏", ids: ["intro"] },
+    { kind: "lyrics", label: 0, ids: ["first", "breath"] },
+    { kind: "lyrics", label: 1, ids: ["second"] },
+    { kind: "instrumental", label: "间奏", ids: ["interlude"] },
+    { kind: "lyrics", label: 2, ids: ["third"] },
+    { kind: "instrumental", label: "尾奏", ids: ["tail"] },
+  ]);
+  assert.deepEqual(new Set(rows.flatMap(ids)), new Set(chords.map(c => c.id)));
+  assert.deepEqual(lines, originalLines);
+});
+
 test("no timing uses a chord timeline instead of inventing a whole-song intro", () => {
   const chords = [chord("one", 3, 7), chord("two", 7, 10)];
   const rows = buildChordTimeline([line(0, 0), line(0, 0)], chords);

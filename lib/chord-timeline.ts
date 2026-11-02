@@ -30,6 +30,7 @@ export function buildChordTimeline(
   }
 
   const gaps = new Map<number, ChordTimelineRow>();
+  const chordDisplayEnds = new Map<number, number>();
   const allLinesTimed = timedLines.length === lines.length;
   function addGap(beforeLine: number, start: number, end: number, label: string) {
     if (end <= start) return;
@@ -41,9 +42,19 @@ export function buildChordTimeline(
   }
 
   let coveredUntil = 0;
+  let coveredBy = -1;
   timedLines.forEach(({ line, index }, position) => {
-    addGap(index, coveredUntil, line.startTime, position === 0 ? "前奏" : "间奏");
-    coveredUntil = Math.max(coveredUntil, line.endTime);
+    const gapDuration = line.startTime - coveredUntil;
+    if (allLinesTimed && coveredBy >= 0 && gapDuration > 0 && gapDuration < 2) {
+      // Keep breathing-gap chords with the preceding line without extending its audio clip.
+      chordDisplayEnds.set(coveredBy, line.startTime);
+    } else {
+      addGap(index, coveredUntil, line.startTime, position === 0 ? "前奏" : "间奏");
+    }
+    if (line.endTime > coveredUntil) {
+      coveredUntil = line.endTime;
+      coveredBy = index;
+    }
   });
   addGap(lines.length, coveredUntil, endTime, "尾奏");
 
@@ -51,7 +62,7 @@ export function buildChordTimeline(
   lines.forEach((line, lineIndex) => {
     const gap = gaps.get(lineIndex);
     if (gap) rows.push(gap);
-    rows.push({ kind: "lyrics", lineIndex, chords: hasTiming(line) ? within(line.startTime, line.endTime) : [] });
+    rows.push({ kind: "lyrics", lineIndex, chords: hasTiming(line) ? within(line.startTime, chordDisplayEnds.get(lineIndex) ?? line.endTime) : [] });
   });
   const tail = gaps.get(lines.length);
   if (tail) rows.push(tail);
