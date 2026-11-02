@@ -5,6 +5,8 @@ import { trashPracticeFiles } from "./practice";
 import type Database from "better-sqlite3";
 import type { AnalyzedSong, SongMeta, SongFull, SongSource } from "@/types/lyrics";
 import type { PracticeDataV1 } from "@/types/practice";
+import type { SongInterpretation } from "@/types/song-interpretation";
+import { interpretationInputHash, parseStoredInterpretation } from "./song-interpretation";
 
 type SongListRow = {
   id: string;
@@ -16,6 +18,7 @@ type SongListRow = {
   youtube_id: string;
   source: SongSource;
   duration_sec: number;
+  interpretation_json: string;
 };
 
 function archiveDeletedPractice(songId: string): void {
@@ -96,30 +99,34 @@ export function listSongs(): SongMeta[] {
   const rows = getDb()
     .prepare(
       `SELECT id, title, artist, original_artist, lines_count, created_at,
-              youtube_id, source, duration_sec
+              youtube_id, source, duration_sec, interpretation_json
        FROM songs
        ORDER BY created_at DESC`
     )
     .all() as SongListRow[];
 
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    artist: r.artist,
-    originalArtist: r.original_artist,
-    linesCount: r.lines_count,
-    createdAt: r.created_at,
-    youtubeId: r.youtube_id,
-    source: r.source,
-    durationSec: r.duration_sec,
-  }));
+  return rows.map((r) => {
+    const interpretation = parseStoredInterpretation(r.interpretation_json);
+    return {
+      id: r.id,
+      title: r.title,
+      artist: r.artist,
+      originalArtist: r.original_artist,
+      linesCount: r.lines_count,
+      createdAt: r.created_at,
+      youtubeId: r.youtube_id,
+      source: r.source,
+      durationSec: r.duration_sec,
+      ...(interpretation && !interpretation.stale ? { themeTags: interpretation.tags.map(item => item.tag) } : {}),
+    };
+  });
 }
 
 export function getSong(id: string, database: Database.Database = getDb()): SongFull | null {
   const row = database
     .prepare(
       `SELECT id, title, artist, original_artist, lyrics, analyzed, lines_count,
-              youtube_url, youtube_id, source, duration_sec, created_at, updated_at
+              youtube_url, youtube_id, source, duration_sec, created_at, updated_at, interpretation_json
        FROM songs WHERE id = ?`
     )
     .get(id) as SongDetailRow | undefined;
@@ -130,6 +137,10 @@ export function getSong(id: string, database: Database.Database = getDb()): Song
 
   analyzed.youtubeUrl = row.youtube_url;
   analyzed.youtubeId = row.youtube_id;
+  const interpretation = parseStoredInterpretation(row.interpretation_json);
+  if (interpretation) interpretation.stale = interpretation.inputHash !== interpretationInputHash({
+    title: row.title, artist: row.artist, originalArtist: row.original_artist, analyzed,
+  });
 
   return {
     id: row.id,
@@ -144,6 +155,7 @@ export function getSong(id: string, database: Database.Database = getDb()): Song
     source: row.source,
     durationSec: row.duration_sec,
     analyzed,
+    ...(interpretation ? { interpretation, ...(!interpretation.stale ? { themeTags: interpretation.tags.map(item => item.tag) } : {}) } : {}),
   };
 }
 
@@ -191,10 +203,12 @@ function updateSongLyricsInTransaction(
   if (!current || current.updatedAt !== expectedUpdatedAt) return false;
   const youtubeUrl = analyzed.youtubeUrl;
   const youtubeId = extractYoutubeId(youtubeUrl);
+  const interpretation = current.interpretation;
+  if (interpretation) interpretation.stale = interpretation.inputHash !== interpretationInputHash({ ...current, analyzed });
   const result = database
     .prepare(
       `UPDATE songs
-         SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?,
+         SET lyrics = ?, analyzed = ?, lines_count = ?, updated_at = ?, interpretation_json = ?,
              duration_sec = CASE WHEN youtube_url = ? OR EXISTS (
                SELECT 1 FROM song_practice
                WHERE song_id = songs.id AND audio_sha256 != ''
@@ -204,7 +218,7 @@ function updateSongLyricsInTransaction(
     )
     .run(
       lyrics, JSON.stringify({ ...analyzed, youtubeId }), analyzed.lines.length,
-      Math.max(Date.now(), expectedUpdatedAt + 1), youtubeUrl, youtubeUrl, youtubeId,
+      Math.max(Date.now(), expectedUpdatedAt + 1), interpretation ? JSON.stringify(interpretation) : "", youtubeUrl, youtubeUrl, youtubeId,
       id, expectedUpdatedAt
     );
   if (result.changes === 0) return false;
@@ -249,6 +263,13 @@ export function existsByYoutubeId(youtubeId: string): boolean {
     .prepare(`SELECT 1 FROM songs WHERE youtube_id = ? LIMIT 1`)
     .get(youtubeId);
   return Boolean(row);
+}
+
+export function saveSongInterpretation(id: string, interpretation: SongInterpretation, expectedUpdatedAt: number): boolean {
+  const song = getSong(id);
+  if (!song || song.updatedAt !== expectedUpdatedAt || interpretation.inputHash !== interpretationInputHash(song)) return false;
+  return getDb().prepare("UPDATE songs SET interpretation_json = ?, updated_at = ? WHERE id = ? AND updated_at = ?")
+    .run(JSON.stringify(interpretation), Math.max(Date.now(), expectedUpdatedAt + 1), id, expectedUpdatedAt).changes > 0;
 }
 
 export function existsByLrclibId(lrclibId: number): boolean {

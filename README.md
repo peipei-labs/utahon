@@ -9,6 +9,7 @@
 ## ✨ 特色
 
 - 🤖 **现成歌词优先**：先从 UtaTen、歌ネット、LRCLIB 查找原文，再由 Gemini 生成汉字注音、罗马音、逐词词性、自然中文翻译
+- 📖 **一键歌曲解读**：结合当前歌词、作品集与可查的背景资料，分析主要表达、情绪变化与歌词依据，并自动贴上恋爱、人生、成长等主题标签
 - 🎬 **YouTube / Bilibili 双源**：yt-dlp 抓音频流，未找到现成歌词时可手工补充，或用 Gemini 多模态转录生成待核对草稿
 - 🔁 **SSE 流式批量导入**：频道 URL 一贴 实时进度逐首滚动 避开 Cloudflare 100s 超时
 - 🧯 **Gemini 模型容错**：Primary 503 过载自动降级到 Fallback 模型 单进程记忆避免反复试错
@@ -23,6 +24,8 @@
 新建页与歌曲页提供「查找现成歌词」：按歌名与歌手搜索，也可粘贴 UtaTen / 歌ネット歌词页链接。先预览，再填入编辑框；已保存歌曲只有在「重新分析并保存」成功后才替换原文。页面记录原文来源与链接，手工修改会另作标记。只有文本逐行对应时才补充 LRCLIB 时间轴；没有可靠时间轴的歌词仍可阅读与朗读，但不能逐句定位原曲。来源返回 403、人机验证或临时故障时会显示无法访问，不会当作未收录。
 
 自动转录、翻译和和弦都可能出错。歌曲页提供歌词纠错与播放来源编辑；修改歌词后重新分析，失败时保留原内容。未人工核对的内容不要当作标准答案。模型输出会检查行数、顺序与词语拼回原文，但这些检查不能代替听歌校对。
+
+歌曲页点击「一键解读」后，会查询 Apple 日本音乐目录中的专辑信息和日本维基百科的同名艺人页面，再分析当前保存的歌词。结果区分资料支持的事实、文本解读和资料不足，附参考链接；查不到时代或创作背景时不会用猜测填充。结果与主题标签会保存，歌单也会显示标签。修改歌词原文后，旧解读会提示重新生成；失败时保留已有结果。此功能不会替换歌词或重做和弦，也不能代替作者本人对创作意图的说明。
 
 ---
 
@@ -82,6 +85,7 @@ uv sync --frozen           # yt-dlp、EJS 和 Edge 日语朗读（YouTube 使用
 AI_GATEWAY_BASE_URL=https://gateway.peipei.dev
 AI_GATEWAY_API_KEY=...
 GEMINI_ANALYZE_MODEL=ag-gemini-3.8-flash-high
+# GEMINI_INTERPRET_MODEL=ag-gemini-3.8-flash-high  # 可选；歌曲解读默认沿用 GEMINI_ANALYZE_MODEL
 GEMINI_SHARE_MODEL=gemini-3.1-flash-lite
 GEMINI_TRANSCRIBE_MODEL=ag-gemini-3.8-flash-high  # 个人网关订阅池别名；Google 直连需使用其公开模型 ID
 GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
@@ -98,7 +102,7 @@ npm run dev
 
 Nanami、Keita 在线朗读使用锁定的 `edge-tts 7.3.1`，由项目 `.venv` 按需运行；支持页面现有速度设置，不保存临时语音文件。部署会在构建前执行 `uv sync --frozen`。`utahon.peipei.dev` 使用独立的 Cloudflare Access bypass 应用，由网站验证密码；其他子域仍沿用各自的 Access 规则。
 
-`AI_GATEWAY_BASE_URL` 填网关根地址，不要附加 `/v1` 或 `/v1beta`。网关地址和 key 必须同时设置；未设置时会继续读取 `GOOGLE_AI_API_KEY` 直连 Google。旧的 `GEMINI_MODEL` 仍可作为三个任务的统一模型配置，任务专用变量优先级更高。
+`AI_GATEWAY_BASE_URL` 填网关根地址，不要附加 `/v1` 或 `/v1beta`。网关地址和 key 必须同时设置；未设置时会继续读取 `GOOGLE_AI_API_KEY` 直连 Google。旧的 `GEMINI_MODEL` 仍可作为各任务的统一模型配置，任务专用变量优先级更高。歌曲解读每个背景来源最多等待 8 秒，模型请求最多等待 120 秒；无需新增 API key。
 
 `ag-gemini-3.8-flash-high` 是个人网关的 Antigravity 订阅池别名，Google 直连需改用该账号可用的公开模型 ID。整首歌词的翻译、分词与假名分析允许每次请求等待 120 秒；其他任务沿用各自超时。更换模型不会自动重新分析已保存歌曲，也不代表原歌词已经校对。
 

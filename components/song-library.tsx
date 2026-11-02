@@ -16,6 +16,7 @@ import type { SongMeta } from "@/types/lyrics";
 import { cn } from "@/lib/utils";
 import { Smallcaps, formatDuration, relativeAdded } from "./editorial-shell";
 import { TextPill } from "./editorial-interactive";
+import { SongThemeTags } from "./song-theme-tags";
 
 const UNKNOWN_ARTIST = "未知";
 
@@ -406,6 +407,7 @@ function IndexRow({
           )}
           {pending && <span className="text-red"> · pending transcription</span>}
         </div>
+        <SongThemeTags tags={song.themeTags} />
       </div>
       <div className="hidden md:block font-mono text-[10px] tracking-[0.14em] uppercase text-ink-mute">
         {song.source === "channel" ? "channel" : "manual"}

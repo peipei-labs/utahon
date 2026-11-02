@@ -16,6 +16,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { VoicePicker } from "@/components/voice-picker";
 import { SongLibrary } from "@/components/song-library";
 import { LogoutButton } from "@/components/logout-button";
+import { SongThemeTags } from "@/components/song-theme-tags";
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +138,7 @@ function FeaturedBlock({ song }: { song: SongFull }) {
             </>
           )}
         </div>
+        <SongThemeTags tags={song.themeTags} />
       </Link>
 
       <aside className="md:pl-7 md:border-l border-rule">
