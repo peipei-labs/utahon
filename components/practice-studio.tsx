@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import type { AnalyzedLine } from "@/types/lyrics";
 import type { ChordEvent, PracticeDataV1, SongSection } from "@/types/practice";
 import type { PracticeTrack } from "@/types/practice";
+import type { StudyPanel } from "./song-study";
 
 const PADDING_OPTIONS = [0, 0.5, 1, 2];
 const MIXER_TRACKS: Array<{ track: PracticeTrack; label: string }> = [
@@ -129,12 +130,14 @@ export function PracticeStudio({
   lines,
   sourceUrl,
   songUpdatedAt,
+  panel,
 }: {
   title: string;
   artist: string;
   lines: AnalyzedLine[];
   sourceUrl: string;
   songUpdatedAt: number;
+  panel: StudyPanel | null;
 }) {
   const { practice, saving, saveData, uploadAudio, downloadSourceAudio, refreshPractice } = usePractice();
   const router = useRouter();
@@ -340,42 +343,16 @@ export function PracticeStudio({
   }
 
   return (
-    <section className="mt-8 md:mt-10 border-y border-ink py-5 md:py-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Smallcaps tone="red">Guitar practice</Smallcaps>
-          <h2 className="font-serif italic text-[28px] md:text-[34px] leading-none text-ink mt-1.5">
-            弹唱练习台
-          </h2>
-          <p className="font-serif text-[13px] md:text-[14px] text-ink-soft mt-2">
-            从歌曲视频取得音频，或上传自己的版本；慢放不变调、划 A/B 循环，再按需生成和弦与分轨。
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            ref={fileInput}
-            type="file"
-            accept="audio/*,.m4a,.mp3,.wav,.flac,.ogg"
-            className="hidden"
-            onChange={(event) => void handleUpload(event.target.files?.[0])}
-          />
-          <TextPill
-            onClick={() => fileInput.current?.click()}
-            disabled={saving}
-            icon={saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
-          >
+    <>
+      <div hidden={panel !== "resources"} className="mt-3">
+        <details className="study-details">
+          <summary>音频与和弦生成</summary>
+          <input ref={fileInput} type="file" accept="audio/*,.m4a,.mp3,.wav,.flac,.ogg" className="hidden"
+            onChange={event => void handleUpload(event.target.files?.[0])} />
+          <TextPill onClick={() => fileInput.current?.click()} disabled={saving}
+            icon={saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}>
             {practice.hasAudio ? "替换音频文件" : "上传音频文件"}
           </TextPill>
-          <TextPill
-            onClick={() => setEditing((value) => !value)}
-            active={editing}
-            icon={<Pencil className="w-3 h-3" />}
-          >
-            Edit
-          </TextPill>
-        </div>
-      </div>
-
       <form
         className="mt-4 border border-rule bg-paper-deep/35 p-4"
         onSubmit={(event) => {
@@ -423,14 +400,42 @@ export function PracticeStudio({
           </p>
         ) : null}
       </form>
+          {practice.hasAudio ? (
+            <div className="mt-3 text-[12px] text-ink-soft">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-serif text-[14px] text-ink">在 Mac 按需生成和弦与分轨</span>
+                <TextPill size="sm" onClick={() => void copyAnalysisCommand()} icon={<Copy className="w-3 h-3" />}>复制命令</TextPill>
+              </div>
+              <p className="mt-2">在这台 Mac 的终端运行以下命令（首次使用需先按 README 安装依赖）。完成后自动同步到本页；未保存修改会保留。</p>
+              <textarea
+                ref={commandInput}
+                readOnly
+                rows={4}
+                aria-label="Mac 分析命令"
+                value={analysisCommand}
+                spellCheck={false}
+                className="mt-2 w-full min-w-0 resize-y border border-rule bg-paper p-2 font-mono text-[11px] break-all outline-none focus:border-ink"
+              />
+              {copyNotice ? <p role="status" className="mt-1">{copyNotice}</p> : null}
+              <p className="mt-2">只生成和弦可追加 --phase chords。自动结果是待校对草稿，不是准确六线谱。</p>
+            </div>
+          ) : null}
 
+          <button type="button" disabled={saving} onClick={() => void handleRefresh()} className="mt-3 min-h-11 text-xs underline underline-offset-4 disabled:opacity-50">载入最新练习数据</button>
+        </details>
+      </div>
+      <section hidden={panel !== "practice"} aria-label="弹唱练习台">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-serif text-xl">弹唱练习</h3>
+          <TextPill onClick={() => setEditing(value => !value)} active={editing} icon={<Pencil className="w-3 h-3" />}>编辑练习谱</TextPill>
+        </div>
       {hasNewResults ? (
         <p role="status" className="mt-3 font-serif text-[13px] text-red">
           已有新的练习数据。你的未保存修改仍保留，不能直接覆盖新结果；请先导出 ChordPro 或记下修改，再载入最新结果。
         </p>
       ) : null}
 
-      <div className="mt-5 grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
+      <div className="mt-5 grid gap-4">
         <div className="border border-rule bg-paper-deep/35 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Gauge className="w-4 h-4 text-red" strokeWidth={1.5} />
@@ -450,7 +455,7 @@ export function PracticeStudio({
             ))}
           </div>
 
-          <p className="mt-2 text-[11px] text-ink-soft">只调整原曲歌声；日语朗读速度在右上角音色菜单设置。</p>
+          <p className="mt-2 text-[11px] text-ink-soft">只调整原曲歌声；日语朗读速度在「设置」中调整。</p>
 
           <div className="flex items-center gap-2 mt-5 mb-3">
             <Scissors className="w-4 h-4 text-red" strokeWidth={1.5} />
@@ -524,35 +529,15 @@ export function PracticeStudio({
           )}
           <div className="mt-4 pt-3 border-t border-rule font-serif text-[12px] text-ink-soft leading-relaxed">
             {practice.status === "pending"
-              ? "音频已就绪。服务器不会自动分析；请在 Mac 手工运行下方命令。"
+              ? "音频已就绪。服务器不会自动分析；请在「资料」中查看 Mac 分析命令。"
               : practice.status === "failed"
                 ? `上次分析失败：${practice.lastError}`
                 : practice.status === "ready"
                   ? `分析完成 · ${practice.data.chords.length} 个和弦 · ${practice.data.sections.length} 个段落`
                   : practice.hasAudio
                     ? "音频可以练习；尚未分析和弦。"
-                    : "YouTube 可以先慢放和循环；从视频取得音频或上传文件后，即可生成练习材料。"}
+                    : "添加音频后即可慢放、循环。在「资料」中取得音频并生成练习材料。"}
           </div>
-          {practice.hasAudio ? (
-            <div className="mt-3 text-[12px] text-ink-soft">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-serif text-[14px] text-ink">在 Mac 按需生成和弦与分轨</span>
-                <TextPill size="sm" onClick={() => void copyAnalysisCommand()} icon={<Copy className="w-3 h-3" />}>复制命令</TextPill>
-              </div>
-              <p className="mt-2">在这台 Mac 的终端运行以下命令（首次使用需先按 README 安装依赖）。完成后自动同步到本页；未保存修改会保留。</p>
-              <textarea
-                ref={commandInput}
-                readOnly
-                rows={4}
-                aria-label="Mac 分析命令"
-                value={analysisCommand}
-                spellCheck={false}
-                className="mt-2 w-full min-w-0 resize-y border border-rule bg-paper p-2 font-mono text-[11px] break-all outline-none focus:border-ink"
-              />
-              {copyNotice ? <p role="status" className="mt-1">{copyNotice}</p> : null}
-              <p className="mt-2">只生成和弦可追加 --phase chords。自动结果是待校对草稿，不是准确六线谱。</p>
-            </div>
-          ) : null}
           <button type="button" disabled={saving} onClick={() => void handleRefresh()} className="mt-3 text-[12px] underline underline-offset-4 disabled:opacity-50">
             载入最新练习数据
           </button>
@@ -565,7 +550,7 @@ export function PracticeStudio({
             <Smallcaps tone="ink">4-stem mixer</Smallcaps>
             <span className="font-serif italic text-[12px] text-ink-mute">分轨同步播放 · M 静音 · S 独听</span>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             {MIXER_TRACKS.map(({ track, label }) => {
               const setting = player.trackMix[track];
               return (
@@ -667,7 +652,7 @@ export function PracticeStudio({
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <div className="mt-5 grid grid-cols-1 gap-5">
             <div className="min-w-0">
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-ink">
                 <Smallcaps tone="ink">Chords · {draft.chords.length}</Smallcaps>
@@ -715,7 +700,7 @@ export function PracticeStudio({
               </div>
               <div className="max-h-[360px] scroll-y" style={{ overflowX: "auto" }}>
                 {draft.sections.map((section) => (
-                  <div key={section.id} className="grid grid-cols-[88px_minmax(80px,1fr)_68px_68px_32px] gap-2 py-2 border-b border-rule items-end">
+                  <div key={section.id} className="grid grid-cols-2 gap-2 py-2 border-b border-rule items-end">
                     <label className="grid gap-1">
                       <span className="font-mono text-[8px] tracking-[0.16em] uppercase text-ink-mute">Type</span>
                       <select
@@ -761,13 +746,14 @@ export function PracticeStudio({
               onClick={() => void handleSave()}
               icon={saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
             >
-              Save sheet
+              保存练习谱
             </TextPill>
           </div>
         </fieldset>
       ) : notice || error ? (
         <p className={cn("font-serif text-[13px] mt-3", error ? "text-red" : "text-ink-soft")}>{error || notice}</p>
       ) : null}
-    </section>
+      </section>
+    </>
   );
 }

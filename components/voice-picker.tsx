@@ -27,7 +27,7 @@ function formatRate(r: ValidRate): string {
   return Number.isInteger(r * 10) ? `${r.toFixed(1)}x` : `${r.toFixed(2)}x`;
 }
 
-export function VoicePicker() {
+export function VoicePicker({ inline = false }: { inline?: boolean }) {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(listJapaneseVoices);
   const settings = useSyncExternalStore(subscribeTtsSettings, getTtsSettingsSnapshot, getServerTtsSettingsSnapshot);
   const [selected, rate] = JSON.parse(settings) as [string | null, ValidRate];
@@ -54,7 +54,7 @@ export function VoicePicker() {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     function handleClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
@@ -62,7 +62,7 @@ export function VoicePicker() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
+  }, [open, inline]);
 
   function pick(name: string | null) {
     setSelectedVoiceName(name);
@@ -95,23 +95,23 @@ export function VoicePicker() {
 
   return (
     <div ref={ref} className="relative">
-      <IconButton
+      {!inline ? <IconButton
         aria-label="选择音色"
         title="选择音色"
         active={open}
         onClick={() => setOpen((v) => !v)}
       >
         <Volume2 className="w-[14px] h-[14px]" strokeWidth={1.5} />
-      </IconButton>
+      </IconButton> : null}
 
       <AnimatePresence>
-        {open && (
+        {(inline || open) && (
           <motion.div
-            initial={{ opacity: 0, y: -4 }}
+            initial={inline ? false : { opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className={cn(
+            className={inline ? "text-ink" : cn(
               "absolute right-0 top-full mt-2 z-30",
               "w-72 max-w-[calc(100vw-2rem)] p-3",
               "bg-paper text-ink border border-ink shadow-[6px_6px_0_0_var(--rule)]"
@@ -125,7 +125,7 @@ export function VoicePicker() {
                   : `${voices.length} 本地可用`}
               </Smallcaps>
             </div>
-            <div className="max-h-80 overflow-y-auto mt-1 scroll-y">
+            <div className={inline ? "mt-1" : "max-h-80 overflow-y-auto mt-1 scroll-y"}>
               <VoiceItem
                 label="浏览器日语音色（自动选择）"
                 onClick={() => pick(null)}
@@ -159,10 +159,10 @@ export function VoicePicker() {
             </div>
             <div className="pt-2 mt-1 border-t border-rule flex items-center justify-between gap-2">
               <Smallcaps tone="ink">朗读速度</Smallcaps>
-              <RateStepper rate={rate} onChange={changeRate} />
+              <RateStepper rate={rate} onChange={changeRate} large={inline} />
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
-              只调整日语朗读。手机推荐 Nanami / Keita；原曲速度在练习区调整。
+              只调整日语朗读。手机推荐 Nanami / Keita；原曲速度在{inline ? "播放工具条" : "练习区"}调整。
             </p>
             <div className="pt-1.5 mt-1 flex items-center gap-1.5">
               {previewing && <Loader2 className="w-3 h-3 animate-spin text-ink-mute" />}
@@ -178,9 +178,11 @@ export function VoicePicker() {
 function RateStepper({
   rate,
   onChange,
+  large = false,
 }: {
   rate: ValidRate;
   onChange: (next: ValidRate) => void;
+  large?: boolean;
 }) {
   const idx = VALID_RATES.indexOf(rate);
   const atMin = idx <= 0;
@@ -194,6 +196,7 @@ function RateStepper({
           if (!atMin) onChange(VALID_RATES[idx - 1]);
         }}
         disabled={atMin}
+        className={large ? "w-11 h-11" : undefined}
       >
         <Minus className="w-[14px] h-[14px]" strokeWidth={1.5} />
       </IconButton>
@@ -210,6 +213,7 @@ function RateStepper({
           if (!atMax) onChange(VALID_RATES[idx + 1]);
         }}
         disabled={atMax}
+        className={large ? "w-11 h-11" : undefined}
       >
         <Plus className="w-[14px] h-[14px]" strokeWidth={1.5} />
       </IconButton>
@@ -233,7 +237,7 @@ function VoiceItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full px-2 py-2 text-left flex items-center justify-between gap-2 transition border-l-2",
+        "w-full min-h-11 px-2 py-2 text-left flex items-center justify-between gap-2 transition border-l-2",
         active
           ? "border-red bg-paper-deep"
           : "border-transparent hover:border-rule hover:bg-paper-deep/60"

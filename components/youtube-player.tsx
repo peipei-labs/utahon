@@ -503,12 +503,12 @@ export function EditorialPlayerPlate({
             {player.availableSources.map((source) => (
               <button key={source} type="button" aria-pressed={source === player.source}
                 onClick={() => player.selectSource(source)}
-                className={cn("border px-2 py-1 text-[12px]", source === player.source ? "border-ink bg-ink text-paper" : "border-rule text-ink-soft")}>
+                className={cn("border px-3 min-h-11 text-[12px]", source === player.source ? "border-ink bg-ink text-paper" : "border-rule text-ink-soft")}>
                 {source === "youtube" ? "YouTube" : "练习音频"}
               </button>
             ))}
           </div>
-          {player.source === "local" ? (
+          {player.source === "local" && !compact ? (
             <p className="mt-1 text-[11px] text-ink-soft">使用已保存的练习音频；请确认它与当前歌词是同一版本。</p>
           ) : null}
         </div>
@@ -555,46 +555,65 @@ function LocalPracticePlate({
           onError={(event) => ctx.reportPlaybackError(event.currentTarget, "练习音频加载失败，请刷新页面或重新上传音频。")}
         />
       ))}
-      <div className="relative aspect-video bg-ink border border-ink overflow-hidden text-paper p-5 flex flex-col justify-between">
-        <div className="absolute inset-0 opacity-[0.16]" style={{
-          backgroundImage: "linear-gradient(135deg, transparent 48%, rgba(255,255,255,.2) 49%, transparent 50%)",
-          backgroundSize: "18px 18px",
-        }} />
-        <div className="relative flex items-center justify-between font-mono text-[9px] tracking-[0.2em] uppercase opacity-75">
-          <span>Practice audio</span>
-          <span>{ctx.tracks.length > 1 ? "4 stems" : "original mix"}</span>
-        </div>
-        <div className="relative flex items-center gap-4">
-          <button
-            type="button"
-            onClick={player.playing ? player.pause : player.play}
-            className="w-14 h-14 rounded-full border border-paper flex items-center justify-center hover:bg-paper/10 transition"
-            aria-label={player.playing ? "暂停练习音频" : "播放练习音频"}
-          >
-            {player.playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-          </button>
-          <div>
-            <AudioLines className="w-5 h-5 mb-2 opacity-75" />
-            <div className="font-serif italic text-[20px] leading-none">弹唱练习</div>
-            <div className="font-mono text-[9px] tracking-[0.14em] uppercase mt-2 opacity-65">
-              pitch preserved · {player.playbackRate.toFixed(2)}×
-            </div>
+      {compact ? (
+        <div className="flex items-center gap-3 border border-rule bg-paper-deep/35 px-3 py-2">
+          <span className="shrink-0 text-[11px] text-ink-soft">{ctx.tracks.length > 1 ? "分轨音频" : "练习音频"}</span>
+          <div className="min-w-0 flex-1">
+            <input
+              type="range"
+              min="0"
+              max={Math.max(0, player.duration)}
+              step="0.1"
+              value={Math.min(player.currentTime, Math.max(0, player.duration))}
+              disabled={player.duration <= 0}
+              onChange={(event) => player.seekTo(Number(event.target.value))}
+              aria-label="跳转练习音频"
+              className="block h-8 w-full accent-[var(--red)] cursor-pointer"
+            />
           </div>
         </div>
-        <button
-          type="button"
-          className="relative h-7 w-full flex items-center"
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            player.seekTo(((event.clientX - rect.left) / rect.width) * player.duration);
-          }}
-          aria-label="跳转练习音频"
-        >
-          <span className="absolute inset-x-0 h-px bg-paper/30" />
-          <span className="absolute left-0 h-px bg-paper" style={{ width: `${progress}%` }} />
-          <span className="absolute w-2 h-2 rounded-full bg-paper -translate-x-1/2" style={{ left: `${progress}%` }} />
-        </button>
-      </div>
+      ) : (
+        <div className="relative aspect-video bg-ink border border-ink overflow-hidden text-paper p-5 flex flex-col justify-between">
+          <div className="absolute inset-0 opacity-[0.16]" style={{
+            backgroundImage: "linear-gradient(135deg, transparent 48%, rgba(255,255,255,.2) 49%, transparent 50%)",
+            backgroundSize: "18px 18px",
+          }} />
+          <div className="relative flex items-center justify-between font-mono text-[9px] tracking-[0.2em] uppercase opacity-75">
+            <span>Practice audio</span>
+            <span>{ctx.tracks.length > 1 ? "4 stems" : "original mix"}</span>
+          </div>
+          <div className="relative flex items-center gap-4">
+            <button
+              type="button"
+              onClick={player.playing ? player.pause : player.play}
+              className="w-14 h-14 rounded-full border border-paper flex items-center justify-center hover:bg-paper/10 transition"
+              aria-label={player.playing ? "暂停练习音频" : "播放练习音频"}
+            >
+              {player.playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+            </button>
+            <div>
+              <AudioLines className="w-5 h-5 mb-2 opacity-75" />
+              <div className="font-serif italic text-[20px] leading-none">弹唱练习</div>
+              <div className="font-mono text-[9px] tracking-[0.14em] uppercase mt-2 opacity-65">
+                pitch preserved · {player.playbackRate.toFixed(2)}×
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="relative h-7 w-full flex items-center"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              player.seekTo(((event.clientX - rect.left) / rect.width) * player.duration);
+            }}
+            aria-label="跳转练习音频"
+          >
+            <span className="absolute inset-x-0 h-px bg-paper/30" />
+            <span className="absolute left-0 h-px bg-paper" style={{ width: `${progress}%` }} />
+            <span className="absolute w-2 h-2 rounded-full bg-paper -translate-x-1/2" style={{ left: `${progress}%` }} />
+          </button>
+        </div>
+      )}
       {!compact ? <PlayerClock player={player} /> : null}
     </div>
   );

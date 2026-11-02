@@ -213,7 +213,7 @@ export function LyricLine({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.015, duration: 0.22 }}
-      className="group relative grid grid-cols-[28px_minmax(0,1fr)] md:grid-cols-[40px_minmax(0,1fr)] gap-3 md:gap-5 py-4 md:py-5 pr-16 md:pr-20 border-b border-rule last:border-b-0"
+      className="group relative grid grid-cols-[24px_minmax(0,1fr)] md:grid-cols-[40px_minmax(0,1fr)] gap-x-2 gap-y-1 md:gap-5 py-4 md:py-5 md:pr-24 border-b border-rule last:border-b-0"
     >
       <div className="pt-3 md:pt-3.5">
         <Smallcaps>
@@ -223,7 +223,7 @@ export function LyricLine({
 
       <div className="min-w-0">
         {chords.length > 0 ? (
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mb-1.5 min-h-6">
+          <div className="relative flex flex-wrap gap-x-2 md:gap-x-3 gap-y-1 mb-1.5 min-h-6">
             {chords.map((chord) => {
               const sourceSymbol = practice.data.chordDisplay === "simple"
                 ? simplifyChordSymbol(chord.symbol)
@@ -233,15 +233,16 @@ export function LyricLine({
                 player && player.currentTime >= chord.startTime && player.currentTime < chord.endTime
               );
               return (
-                <span key={chord.id} className="relative">
+                <span key={chord.id} className="md:relative">
                   <button
                     type="button"
                     onClick={() => setOpenChordId((value) => value === chord.id ? null : chord.id)}
                     className={cn(
-                      "font-mono text-[12px] md:text-[13px] font-medium border-b transition px-0.5",
+                      "min-w-11 min-h-11 md:min-w-0 md:min-h-0 font-mono text-[12px] md:text-[13px] font-medium border-b transition px-0.5",
                       active ? "text-red border-red" : "text-ink-soft border-rule hover:text-ink hover:border-ink"
                     )}
                     aria-label={`查看 ${shape} 吉他指法`}
+                    aria-expanded={openChordId === chord.id}
                   >
                     {shape}
                   </button>
@@ -281,8 +282,8 @@ export function LyricLine({
 
       <div
         className={cn(
-          "absolute top-4 md:top-5 right-0 flex gap-0.5",
-          "opacity-40 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100",
+          "col-start-2 flex gap-1 mt-1 md:mt-0 md:absolute md:top-5 md:right-0",
+          "opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100",
           "transition-opacity duration-200"
         )}
       >
@@ -291,7 +292,7 @@ export function LyricLine({
             type="button"
             onClick={() => player?.playSegment(line.startTime, line.endTime)}
             aria-label="播放原唱片段"
-            className="w-7 h-7 flex items-center justify-center text-ink-mute hover:text-red transition"
+            className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-ink-soft hover:text-red transition"
           >
             <Music4 className="w-3.5 h-3.5" strokeWidth={1.5} />
           </button>
@@ -300,7 +301,7 @@ export function LyricLine({
           type="button"
           onClick={() => toggle(line.original)}
           aria-label={speaking ? "停止朗读" : "朗读本行"}
-          className="w-7 h-7 flex items-center justify-center text-ink-mute hover:text-ink transition"
+          className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-ink-soft hover:text-ink transition"
         >
           {speaking ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -312,7 +313,7 @@ export function LyricLine({
           type="button"
           onClick={handleCopy}
           aria-label="复制原文"
-          className="w-7 h-7 flex items-center justify-center text-ink-mute hover:text-ink transition"
+          className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-ink-soft hover:text-ink transition"
         >
           {copied ? (
             <Check className="w-3.5 h-3.5 text-red" strokeWidth={1.5} />
