@@ -3,16 +3,24 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { TextPill } from "./editorial-interactive";
+import { LyricsLookup } from "./lyrics-lookup";
+import { LYRICS_SOURCE_NAMES } from "@/lib/lyrics-provenance";
+import type { LyricsSourceMeta } from "@/types/lyrics-source";
 
-export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
+export function SongEditor({ songId, title, artist, durationSec, lyrics, lyricsSource, youtubeUrl, updatedAt }: {
   songId: string;
+  title: string;
+  artist: string;
+  durationSec?: number;
   lyrics: string;
+  lyricsSource?: LyricsSourceMeta;
   youtubeUrl: string;
   updatedAt: number;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<"lyrics" | "source" | null>(null);
   const [draftLyrics, setDraftLyrics] = useState(lyrics);
+  const [draftLyricsSource, setDraftLyricsSource] = useState(lyricsSource);
   const [draftSource, setDraftSource] = useState(youtubeUrl);
   const [draftVersion, setDraftVersion] = useState(updatedAt);
   const [busy, setBusy] = useState(false);
@@ -22,6 +30,7 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
   function begin(nextMode: "lyrics" | "source") {
     if (!mode) {
       setDraftLyrics(lyrics);
+      setDraftLyricsSource(lyricsSource);
       setDraftSource(youtubeUrl);
       setDraftVersion(updatedAt);
     }
@@ -39,7 +48,7 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
         method: mode === "lyrics" ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mode === "lyrics"
-          ? { lyrics: draftLyrics, updatedAt: draftVersion }
+          ? { lyrics: draftLyrics, lyricsSource: draftLyricsSource, updatedAt: draftVersion }
           : { youtubeUrl: draftSource, updatedAt: draftVersion }),
       });
       const result = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
@@ -56,9 +65,19 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
   return (
     <section className="mt-6 border border-rule p-4 bg-paper-deep/30" aria-label="歌曲维护">
       <p className="text-sm text-ink-soft leading-relaxed">
-        歌词、读音和翻译可能由 AI 生成，未经人工逐句校对。格式检查不能保证内容准确；发现错误请纠正歌词后重新分析。
+        优先采用现成歌词作为原文，AI 负责读音与翻译。音频转录仅作草稿；发现缺字或符号时，可查找原文后重新分析。
+      </p>
+      <p className="mt-2 text-xs text-ink-soft">
+        歌词来源：{lyricsSource ? <>
+          {lyricsSource.url ? <a href={lyricsSource.url} target="_blank" rel="noopener noreferrer" className="underline">{LYRICS_SOURCE_NAMES[lyricsSource.provider]}</a> : LYRICS_SOURCE_NAMES[lyricsSource.provider]}
+          {lyricsSource.edited && " · 已手工修改"}
+          {lyricsSource.timingProvider && <> · 时间轴：<a href={lyricsSource.timingUrl} target="_blank" rel="noopener noreferrer" className="underline">LRCLIB</a></>}
+        </> : "未记录，可重新查找并核对"}
       </p>
       <div className="flex flex-wrap gap-2 mt-3">
+        <TextPill disabled={busy || pending} onClick={() => begin("lyrics")}>
+          查找现成歌词
+        </TextPill>
         <TextPill disabled={busy || pending} onClick={() => begin("lyrics")}>
           纠错歌词
         </TextPill>
@@ -71,14 +90,24 @@ export function SongEditor({ songId, lyrics, youtubeUrl, updatedAt }: {
           {draftVersion !== updatedAt && <p role="status" className="text-sm text-red">歌曲已更新，当前草稿仍保留。请先复制需要的内容，再取消并重新打开编辑。</p>}
           {mode === "lyrics" ? (
             <>
+              <LyricsLookup title={title} artist={artist} durationSec={durationSec} disabled={busy || pending}
+                onUse={candidate => {
+                  setDraftLyrics(candidate.lyrics);
+                  setDraftLyricsSource(candidate.source);
+                  setError("");
+                }} />
               <label className="block text-sm text-ink">
                 歌词原文 / LRC
                 <textarea
-                  value={draftLyrics} onChange={(event) => setDraftLyrics(event.target.value)}
+                  value={draftLyrics} onChange={(event) => {
+                    setDraftLyrics(event.target.value);
+                    setDraftLyricsSource(current => current ? { ...current, edited: true } : { provider: "manual" });
+                  }}
                   rows={12} required disabled={busy || pending} maxLength={100000}
                   className="block w-full mt-2 p-3 bg-paper border border-rule text-ink font-mono text-sm"
                 />
               </label>
+              {draftLyricsSource && <p className="text-xs text-ink-soft">当前草稿来源：{LYRICS_SOURCE_NAMES[draftLyricsSource.provider]}{draftLyricsSource.edited ? " · 已手工修改" : ""}</p>}
               <p className="text-xs text-ink-soft">保留 [分:秒] 时间标签可继续跟随播放；普通文本没有定位时间。保存会调用 AI 重新生成读音和翻译，成功后才替换旧内容。</p>
             </>
           ) : (

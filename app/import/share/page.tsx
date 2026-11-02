@@ -125,7 +125,7 @@ export default function ShareImportPage() {
         setState({
           kind: "error",
           message: outcome.reason === "no_lyrics_no_video"
-            ? "lrclib 没有找到歌名、歌手及版本匹配的歌词。请校对信息，或补充 YouTube 来源建立待转录歌曲。"
+            ? "歌词来源没有找到歌名、歌手及版本匹配的原文。请校对信息，或补充 YouTube 来源建立待转录歌曲。"
             : `导入未完成：${outcome.reason}`,
           back: "preview",
           preview: data,
@@ -234,7 +234,7 @@ export default function ShareImportPage() {
 
       <Colophon>
         <span>Import · share text</span>
-        <span className="text-center">—— ai parse · lrclib · gemini ——</span>
+        <span className="text-center">—— ai parse · 现成歌词 · gemini ——</span>
         <span className="hidden sm:inline text-right">paste · review · file</span>
       </Colophon>
 
@@ -273,7 +273,7 @@ function IdleSection({
             className="block w-full px-4 py-3.5 font-mono text-[13px] md:text-[14px] tracking-tight bg-transparent text-ink placeholder:text-ink-mute/60 outline-none border-b border-ink resize-y leading-[1.6]"
           />
           <div className="flex flex-col md:flex-row md:items-center justify-between px-4 py-2.5 gap-3 md:gap-4">
-            <Smallcaps>ai · lrclib · gemini</Smallcaps>
+            <Smallcaps>ai · 现成歌词 · gemini</Smallcaps>
             <TextPill
               onClick={onSubmit}
               tone="red"
@@ -308,13 +308,13 @@ function IdleSection({
             <span className="font-serif italic text-red font-medium shrink-0">
               02.
             </span>
-            主人在预览页校对（lrclib 搜不到时回来改一改）
+            在预览页核对歌名与歌手（搜不到时可修改后重试）
           </li>
           <li className="flex gap-3">
             <span className="font-serif italic text-red font-medium shrink-0">
               03.
             </span>
-            lrclib 拉歌词 · Gemini 注音 / 罗马音 / 翻译 / 词性 → 入库
+            UtaTen / 歌ネット / LRCLIB 查原文 · Gemini 注音、翻译 → 入库
           </li>
         </ul>
         <div className="mt-5 p-3.5 border border-rule bg-paper-deep/60 font-serif italic text-[13px] text-ink-soft leading-[1.5]">
@@ -389,7 +389,7 @@ function PreviewSection({
             required
             value={data.artist}
             onChange={(v) => onChange("artist", v)}
-            placeholder="主唱 · 必填 · lrclib 用此搜索"
+            placeholder="歌手 · 必填 · 用于匹配歌词版本"
             jp
           />
           <PreviewField
@@ -404,7 +404,7 @@ function PreviewSection({
             value={data.originalArtist}
             onChange={(v) => onChange("originalArtist", v)}
             placeholder="可选 · 留空"
-            hint="ai parsed · informational · 入库以 lrclib 数据为准"
+            hint="ai parsed · informational · 请与原歌曲核对"
             jp
           />
           {data.sourceUrl && (
@@ -444,13 +444,13 @@ function PreviewSection({
             <span className="font-serif italic text-red font-medium shrink-0">
               ·
             </span>
-            <span>歌名用日文原文 / 罗马字（lrclib 多收日文）</span>
+            <span>优先填写日文原曲名，保留版本名</span>
           </li>
           <li className="flex gap-3">
             <span className="font-serif italic text-red font-medium shrink-0">
               ·
             </span>
-            <span>多人合唱取主唱（lrclib 通常按主唱建库）</span>
+            <span>歌手与原版署名保持一致，避免匹配错歌</span>
           </li>
           <li className="flex gap-3">
             <span className="font-serif italic text-red font-medium shrink-0">
@@ -525,7 +525,7 @@ function IngestingSection({ data }: { data: PreviewData }) {
         Rin 正在帮 Peipei主人入库《
         <span className="font-serif-jp jp">{data.title}</span>》喵～
       </div>
-      <Smallcaps tone="soft">lrclib · gemini · 请等待分析完成</Smallcaps>
+      <Smallcaps tone="soft">现成歌词 · gemini · 请等待分析完成</Smallcaps>
     </motion.section>
   );
 }

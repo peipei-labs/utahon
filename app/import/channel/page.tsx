@@ -174,7 +174,7 @@ export default function ChannelImportPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
                 <LabeledInput
                   label="Artist hint"
-                  placeholder="给 lrclib 搜索"
+                  placeholder="用于搜索现成歌词"
                   value={artistHint}
                   onChange={setArtistHint}
                 />
@@ -201,13 +201,13 @@ export default function ChannelImportPage() {
                   <span className="font-serif italic text-red font-medium shrink-0">
                     02.
                   </span>
-                  lrclib 拉歌词；miss 时落占位 + 可重转
+                  先找现成歌词；未收录时可手工补充或转录
                 </li>
                 <li className="flex gap-3">
                   <span className="font-serif italic text-red font-medium shrink-0">
                     03.
                   </span>
-                  Gemini 3.1 Flash Lite 注音 / 罗马音 / 词性 / 翻译
+                  Gemini 注音 / 罗马音 / 词性 / 翻译
                 </li>
                 <li className="flex gap-3">
                   <span className="font-serif italic text-red font-medium shrink-0">
@@ -304,7 +304,7 @@ export default function ChannelImportPage() {
                   <ResultSection
                     title={`Placeholders (${derived.placeholders.length})`}
                     icon={<Mic className="w-3.5 h-3.5" strokeWidth={1.5} />}
-                    hint="lrclib 没找到歌词 · 已占位入库 · 去详情页点「重转」用 Gemini 转录"
+                    hint="暂未找到匹配歌词 · 已保留歌曲 · 去详情页补充原文或转录草稿"
                   >
                     {derived.placeholders.map((p) => (
                       <div
@@ -385,7 +385,7 @@ export default function ChannelImportPage() {
 
       <Colophon>
         <span>Import · channel ingest</span>
-        <span className="text-center">—— yt-dlp · lrclib · gemini ——</span>
+        <span className="text-center">—— yt-dlp · 现成歌词 · gemini ——</span>
         <span className="hidden sm:inline text-right">SSE · auto-resume</span>
       </Colophon>
 

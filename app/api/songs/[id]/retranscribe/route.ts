@@ -52,6 +52,7 @@ export async function POST(
       youtubeUrl: source.kind === "youtube" ? source.url : "",
     });
     Object.assign(analyzed, sourceFields(source), { originalArtist: song.originalArtist });
+    analyzed.lyricsSource = { provider: "audio", url: source.url, fetchedAt: Date.now() };
     const ok = updateSongLyrics(id, lrc, analyzed, song.updatedAt);
     if (!ok) {
       return Response.json({ error: "转录期间歌曲已被修改，请刷新后重试；未覆盖已有内容" }, { status: 409 });

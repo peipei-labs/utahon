@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Sparkles, Download, Check, AlertCircle } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
+import { LyricsLookup } from "@/components/lyrics-lookup";
+import type { LyricsSourceMeta } from "@/types/lyrics-source";
+import { LYRICS_SOURCE_NAMES } from "@/lib/lyrics-provenance";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { VoicePicker } from "@/components/voice-picker";
 import {
@@ -25,17 +28,6 @@ type State =
   | { kind: "analyzing" }
   | { kind: "error"; message: string };
 
-type LrclibState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | {
-      kind: "ok";
-      trackName: string;
-      artistName: string;
-      hasTimestamps: boolean;
-    }
-  | { kind: "err"; message: string };
-
 export default function NewSongPage() {
   const router = useRouter();
   const [lyrics, setLyrics] = useState("");
@@ -43,45 +35,7 @@ export default function NewSongPage() {
   const [artist, setArtist] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
-  const [lrclibState, setLrclibState] = useState<LrclibState>({ kind: "idle" });
-
-  async function handleFetchLrclib() {
-    if (!title.trim()) return;
-    setLrclibState({ kind: "loading" });
-    try {
-      const res = await fetch("/api/lrclib", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, artist }),
-      });
-      const data = (await res.json()) as {
-        lyrics?: string;
-        trackName?: string;
-        artistName?: string;
-        hasTimestamps?: boolean;
-        error?: string;
-      };
-      if (!res.ok || !data.lyrics) {
-        setLrclibState({
-          kind: "err",
-          message: data.error ?? `lrclib 返回 ${res.status}`,
-        });
-        return;
-      }
-      setLyrics(data.lyrics);
-      setLrclibState({
-        kind: "ok",
-        trackName: data.trackName ?? title,
-        artistName: data.artistName ?? artist,
-        hasTimestamps: Boolean(data.hasTimestamps),
-      });
-    } catch (err) {
-      setLrclibState({
-        kind: "err",
-        message: err instanceof Error ? err.message : "网络错误",
-      });
-    }
-  }
+  const [lyricsSource, setLyricsSource] = useState<LyricsSourceMeta>();
 
   async function handleAnalyze() {
     if (!lyrics.trim()) return;
@@ -90,7 +44,7 @@ export default function NewSongPage() {
       const res = await fetch("/api/songs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lyrics, title, artist, youtubeUrl }),
+        body: JSON.stringify({ lyrics, title, artist, youtubeUrl, lyricsSource }),
       });
       const data = (await res.json()) as { id?: string; error?: string };
       if (!res.ok || !data.id) {
@@ -151,40 +105,14 @@ export default function NewSongPage() {
           >
             <div className="space-y-5">
               <div className="grid sm:grid-cols-2 gap-3">
-                <LabeledInput label="Title" value={title} onChange={setTitle} placeholder="歌名" />
-                <LabeledInput label="Artist" value={artist} onChange={setArtist} placeholder="歌手" />
+                <LabeledInput label="Title" value={title} onChange={value => { setTitle(value); setLyricsSource(undefined); }} placeholder="歌名" />
+                <LabeledInput label="Artist" value={artist} onChange={value => { setArtist(value); setLyricsSource(undefined); }} placeholder="歌手" />
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3">
-                <TextPill
-                  onClick={handleFetchLrclib}
-                  disabled={!title.trim() || lrclibState.kind === "loading"}
-                  icon={
-                    lrclibState.kind === "loading" ? (
-                      <Loader2 className="w-3 h-3 animate-spin" strokeWidth={1.5} />
-                    ) : (
-                      <Download className="w-3 h-3" strokeWidth={1.5} />
-                    )
-                  }
-                >
-                  Fetch from lrclib
-                </TextPill>
-                {lrclibState.kind === "ok" && (
-                  <span className="inline-flex items-center gap-1.5 font-serif italic text-[13px] text-red">
-                    <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
-                    <span className="truncate">
-                      {lrclibState.trackName} · {lrclibState.artistName} ·{" "}
-                      {lrclibState.hasTimestamps ? "with ts" : "no ts"}
-                    </span>
-                  </span>
-                )}
-                {lrclibState.kind === "err" && (
-                  <span className="inline-flex items-center gap-1.5 font-serif italic text-[13px] text-red-soft">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
-                    <span className="truncate">{lrclibState.message}</span>
-                  </span>
-                )}
-              </div>
+              <LyricsLookup title={title} artist={artist} onUse={candidate => {
+                setLyrics(candidate.lyrics);
+                setLyricsSource(candidate.source);
+              }} />
 
               <LabeledInput
                 label="YouTube URL"
@@ -198,17 +126,22 @@ export default function NewSongPage() {
                 <Smallcaps>Lyrics</Smallcaps>
                 <textarea
                   value={lyrics}
-                  onChange={(e) => setLyrics(e.target.value)}
+                  onChange={(e) => {
+                    setLyrics(e.target.value);
+                    setLyricsSource(current => current ? { ...current, edited: true } : { provider: "manual" });
+                  }}
                   rows={12}
                   placeholder={`粘贴日文歌词(支持 LRC 或纯文本)\n\n${DEMO_LYRICS}`}
                   className="mt-1.5 block w-full font-serif-jp jp text-[17px] md:text-[18px] leading-[1.8] px-4 py-3.5 bg-paper-deep/40 border border-rule focus:border-ink outline-none text-ink placeholder:text-ink-mute resize-y min-h-[260px]"
                 />
               </div>
 
+              {lyricsSource && <p className="text-xs text-ink-soft">当前原文来源：{LYRICS_SOURCE_NAMES[lyricsSource.provider]}{lyricsSource.edited ? " · 已手工修改" : ""}</p>}
+
               <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => setLyrics(DEMO_LYRICS)}
+                  onClick={() => { setLyrics(DEMO_LYRICS); setLyricsSource({ provider: "manual" }); }}
                   className="font-mono text-[10px] tracking-[0.16em] uppercase text-ink-mute hover:text-ink transition self-start sm:self-auto"
                 >
                   use sample lyrics
@@ -227,7 +160,7 @@ export default function NewSongPage() {
             <aside className="md:pl-8 md:border-l border-rule">
               <Smallcaps>Editor&rsquo;s note</Smallcaps>
               <p className="font-serif italic text-[14px] md:text-[15px] text-ink-soft mt-2 leading-[1.55]">
-                Rin 用 Gemini 3.1 Flash Lite 标注汉字注音、罗马音、逐词词性、自然中文翻译。粘贴 LRC 时间戳可按行播放。
+                先查找现成歌词或粘贴原文，Rin 再用 Gemini 标注汉字注音、罗马音、逐词词性、自然中文翻译。有可靠 LRC 时间戳时可按行播放。
               </p>
               <div className="mt-5 p-3.5 border border-rule bg-paper-deep/60 font-serif text-[13px] text-ink leading-[1.55]">
                 <span className="font-serif italic text-red font-medium">Tip · </span>
@@ -250,7 +183,7 @@ export default function NewSongPage() {
               Rin 正在分析歌词喵～
             </div>
             <div className="font-mono text-[10px] tracking-[0.18em] uppercase text-ink-mute">
-              Gemini 3.1 Flash Lite · furigana · romaji · pos · zh
+              Gemini · furigana · romaji · pos · zh
             </div>
           </motion.section>
         )}
@@ -279,8 +212,8 @@ export default function NewSongPage() {
 
       <Colophon>
         <span>New · manual entry</span>
-        <span className="text-center">—— gemini 3.1 ——</span>
-        <span className="hidden sm:inline text-right">lrclib · yt-dlp</span>
+        <span className="text-center">—— 现成歌词 · gemini ——</span>
+        <span className="hidden sm:inline text-right">UtaTen · 歌ネット · LRCLIB</span>
       </Colophon>
 
       <TabBar />

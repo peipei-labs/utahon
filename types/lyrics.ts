@@ -1,3 +1,5 @@
+import type { LyricsSourceMeta } from "./lyrics-source";
+
 export type ParsedLine = {
   startTime: number;
   endTime: number;
@@ -29,6 +31,7 @@ export type AnalyzedSong = {
   youtubeUrl: string;
   youtubeId: string;
   transcriptionSourceUrl?: string;
+  lyricsSource?: LyricsSourceMeta;
   lines: AnalyzedLine[];
 };
 

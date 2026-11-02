@@ -2,9 +2,10 @@ import { NextRequest } from "next/server";
 import { analyzeLyrics } from "@/lib/analyze-pipeline";
 import { isGeminiTimeoutError } from "@/lib/gemini-client";
 import { createSong, listSongs } from "@/lib/songs";
+import { parseLyricsSource } from "@/lib/lyrics-provenance";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET() {
   return Response.json(listSongs());
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest) {
     title?: string;
     artist?: string;
     youtubeUrl?: string;
+    lyricsSource?: unknown;
   };
   try {
     body = await request.json();
@@ -23,8 +25,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "请求体不是有效 JSON" }, { status: 400 });
   }
 
-  if (!body.lyrics || typeof body.lyrics !== "string") {
-    return Response.json({ error: "歌词为空" }, { status: 400 });
+  if (!body || typeof body.lyrics !== "string" || !body.lyrics.trim() || body.lyrics.length > 100_000) {
+    return Response.json({ error: "请输入有效歌词（最多 100000 字符）" }, { status: 400 });
+  }
+
+  const lyricsSource = parseLyricsSource(body.lyricsSource);
+  if (body.lyricsSource !== undefined && !lyricsSource) {
+    return Response.json({ error: "歌词来源信息无效，请重新查找或手工录入" }, { status: 400 });
   }
 
   try {
@@ -34,6 +41,7 @@ export async function POST(request: NextRequest) {
       artist: body.artist,
       youtubeUrl: body.youtubeUrl,
     });
+    analyzed.lyricsSource = lyricsSource ?? { provider: "manual" };
     const id = createSong({
       title: analyzed.title,
       artist: analyzed.artist,
