@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BookOpen, FolderOpen, Guitar, Settings2, X, Play, Pause, Repeat2, Loader2, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildChordTimeline } from "@/lib/chord-timeline";
 import type { SongFull } from "@/types/lyrics";
 import { usePlayer } from "./player-context";
 import { formatDuration } from "./editorial-shell";
 import { EditorialPlayerPlate } from "./youtube-player";
 import { LyricLine } from "./lyric-line";
+import { InstrumentalChords } from "./instrumental-chords";
 import { SongEditor } from "./song-editor";
 import { PracticeStudio } from "./practice-studio";
 import { SongInterpretationPanel, useSongInterpretation } from "./song-interpretation";
@@ -68,6 +70,8 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
   const triggerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const hasLyrics = song.analyzed.lines.length > 0;
+  const scoreRows = useMemo(() => buildChordTimeline(song.analyzed.lines, practice.data.chords, song.durationSec),
+    [song.analyzed.lines, practice.data.chords, song.durationSec]);
   const action = useSongInterpretation({ songId: song.id, updatedAt: song.updatedAt, interpretation: song.interpretation, hasLyrics });
   const isOpen = panel !== null;
   const sourceUrl = song.analyzed.youtubeUrl || song.analyzed.transcriptionSourceUrl ||
@@ -135,13 +139,17 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
       </div>
 
       <section aria-label="歌词与和弦" className="mx-auto max-w-4xl">
-        {hasLyrics ? song.analyzed.lines.map((line, index) => <LyricLine key={index} line={line} index={index} />) : (
+        {scoreRows.map(row => row.kind === "lyrics"
+          ? <LyricLine key={`line-${row.lineIndex}`} line={song.analyzed.lines[row.lineIndex]} index={row.lineIndex} chords={row.chords} />
+          : <InstrumentalChords key={`gap-${row.startTime}-${row.endTime}`} label={row.label}
+              startTime={row.startTime} endTime={row.endTime} chords={row.chords} />)}
+        {!hasLyrics ? (
           <div className="py-8 text-center">
             <h2 className="font-serif text-xl">准备好歌词，就能开始学习</h2>
             <p className="my-3 text-sm text-ink-soft">查找现成歌词，或导入自己的歌词原文。</p>
             <button type="button" onClick={() => openPanel("resources")} className="min-h-11 border border-ink px-4 text-sm">添加歌词</button>
           </div>
-        )}
+        ) : null}
       </section>
 
       <dialog ref={dialogRef} aria-labelledby="study-panel-heading" onCancel={event => { event.preventDefault(); setPanel(null); }}
