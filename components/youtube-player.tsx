@@ -35,8 +35,9 @@ type InternalCtx = {
   releaseYoutubePlayer: () => void;
   setLocalAudio: (track: PracticeTrack, element: HTMLAudioElement | null) => void;
   reportPlaybackRate: (rate: number) => void;
-  setPlaying: (playing: boolean) => void;
-  handlePlaybackEnded: () => void;
+  reportPlaying: (element: HTMLAudioElement | YouTubePlayer, playing: boolean) => void;
+  reportPlaybackError: (element: HTMLAudioElement | YouTubePlayer, message: string) => void;
+  handlePlaybackEnded: (element: HTMLAudioElement | YouTubePlayer) => void;
   durationSec: number;
   videoId: string;
   source: "local" | "youtube";
@@ -73,7 +74,7 @@ export function SongPlayerProvider({
   const { practice } = usePractice();
   const [sourceChoice, setSourceChoice] = useState<{ videoId: string; source: "local" | "youtube" } | null>(null);
   const source = !practice.hasAudio ? "youtube" : !videoId ? "local"
-    : sourceChoice?.videoId === videoId ? sourceChoice.source : "youtube";
+    : sourceChoice?.videoId === videoId ? sourceChoice.source : "local";
   const availableSources = useMemo<Array<"local" | "youtube">>(
     () => [...(videoId ? ["youtube" as const] : []), ...(practice.hasAudio ? ["local" as const] : [])],
     [practice.hasAudio, videoId]
@@ -86,6 +87,9 @@ export function SongPlayerProvider({
   );
   const youtubeRef = useRef<YouTubePlayer | null>(null);
   const audioRefs = useRef(new Map<PracticeTrack, HTMLAudioElement>());
+  const playRequestRef = useRef(0);
+  const restoredSourceRef = useRef<string | null>(null);
+  const playbackSourceKey = `${songId}:${source}:${videoId}:${practice.audioSha256}`;
   const activeRangeRef = useRef<{ startTime: number; endTime: number } | null>(null);
   const loopEnabledRef = useRef(false);
   const paddingRef = useRef(0);
@@ -94,6 +98,7 @@ export function SongPlayerProvider({
   const [playbackRate, setPlaybackRateState] = useState(1);
   const [availableRates, setAvailableRates] = useState<number[]>(LOCAL_RATES);
   const [playing, setPlaying] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [loopRange, setLoopRangeState] = useState<{ startTime: number; endTime: number } | null>(null);
   const [loopEnabled, setLoopEnabledState] = useState(false);
   const [paddingSec, setPaddingSecState] = useState(0);
@@ -127,23 +132,68 @@ export function SongPlayerProvider({
     [duration, localElements, source]
   );
 
-  const play = useCallback(() => {
-    if (source === "local") {
-      for (const audio of localElements()) void audio.play();
-    } else {
-      youtubeRef.current?.playVideo();
-    }
-    setPlaying(true);
-  }, [localElements, source]);
-
   const pause = useCallback(() => {
-    if (source === "local") {
-      for (const audio of localElements()) audio.pause();
-    } else {
+    playRequestRef.current += 1;
+    for (const audio of localElements()) audio.pause();
+    try {
       youtubeRef.current?.pauseVideo();
-    }
+    } catch { /* The iframe may already have been removed. */ }
     setPlaying(false);
-  }, [localElements, source]);
+  }, [localElements]);
+
+  const failPlayback = useCallback((message: string) => {
+    pause();
+    setPlaybackError(message);
+  }, [pause]);
+
+  const play = useCallback(() => {
+    const request = ++playRequestRef.current;
+    setPlaybackError(null);
+    if (source === "local") {
+      const elements = localElements();
+      if (!elements.length) {
+        failPlayback("练习音频尚未加载，请稍后重试。");
+        return;
+      }
+      const attempts = elements.map((audio) => {
+        try {
+          return audio.play();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      });
+      void Promise.all(attempts).then(() => {
+        if (request === playRequestRef.current) setPlaying(true);
+      }).catch((error: unknown) => {
+        if (request !== playRequestRef.current) return;
+        failPlayback(error instanceof Error && error.name === "NotAllowedError"
+          ? "浏览器未允许播放，请再次点击播放。"
+          : "练习音频播放失败，请刷新页面后重试。");
+      });
+    } else if (!youtubeRef.current) {
+      failPlayback("YouTube 尚未加载完成，请稍后重试，或切换到练习音频。");
+    } else {
+      try {
+        youtubeRef.current.playVideo();
+      } catch {
+        failPlayback("YouTube 播放失败，请重新加载播放器。");
+      }
+    }
+  }, [failPlayback, localElements, source]);
+
+  const isCurrentPlayer = useCallback((element: HTMLAudioElement | YouTubePlayer) => (
+    source === "local" ? localElements().includes(element) : youtubeRef.current === element
+  ), [localElements, source]);
+
+  const reportPlaying = useCallback((element: HTMLAudioElement | YouTubePlayer, nextPlaying: boolean) => {
+    if (!isCurrentPlayer(element)) return;
+    setPlaying(nextPlaying);
+    if (nextPlaying) setPlaybackError(null);
+  }, [isCurrentPlayer]);
+
+  const reportPlaybackError = useCallback((element: HTMLAudioElement | YouTubePlayer, message: string) => {
+    if (isCurrentPlayer(element)) failPlayback(message);
+  }, [failPlayback, isCurrentPlayer]);
 
   const selectSource = useCallback((nextSource: "local" | "youtube") => {
     pause();
@@ -218,7 +268,8 @@ export function SongPlayerProvider({
     [play, seekTo]
   );
 
-  const handlePlaybackEnded = useCallback(() => {
+  const handlePlaybackEnded = useCallback((element: HTMLAudioElement | YouTubePlayer) => {
+    if (!isCurrentPlayer(element)) return;
     const range = activeRangeRef.current;
     if (range && loopEnabledRef.current) {
       seekTo(Math.max(0, range.startTime - paddingRef.current));
@@ -228,7 +279,7 @@ export function SongPlayerProvider({
       setLoopRangeState(null);
       pause();
     }
-  }, [pause, play, seekTo]);
+  }, [isCurrentPlayer, pause, play, seekTo]);
 
   const setYoutubePlayer = useCallback(
     (player: YouTubePlayer | null) => {
@@ -273,15 +324,19 @@ export function SongPlayerProvider({
   }, [trackMix, tracks]);
 
   const restoreTrackPlayback = useEffectEvent(() => {
+    playRequestRef.current += 1;
+    const sameSource = restoredSourceRef.current === playbackSourceKey;
+    restoredSourceRef.current = playbackSourceKey;
     if (source !== "local") return;
     for (const audio of localElements()) {
       audio.currentTime = currentTime;
-      if (playing) void audio.play().catch(() => pause());
     }
+    if (playing && sameSource) play();
   });
-  useEffect(() => { restoreTrackPlayback(); }, [tracks]);
+  useEffect(() => { restoreTrackPlayback(); }, [tracks, playbackSourceKey]);
 
   useEffect(() => {
+    playRequestRef.current += 1;
     const youtube = youtubeRef.current;
     if (youtube?.getIframe?.()?.isConnected) youtube.pauseVideo();
     for (const audio of localElements()) {
@@ -295,10 +350,14 @@ export function SongPlayerProvider({
       setCurrentTime(0);
       setDuration(durationSec);
       setPlaying(false);
+      setPlaybackError(null);
       setLoopRangeState(null);
       setLoopEnabledState(false);
     }, 0);
-    return () => window.clearTimeout(reset);
+    return () => {
+      playRequestRef.current += 1;
+      window.clearTimeout(reset);
+    };
   }, [durationSec, localElements, practice.audioSha256, source, videoId]);
 
   useEffect(() => {
@@ -351,6 +410,7 @@ export function SongPlayerProvider({
       playbackRate,
       availableRates,
       playing,
+      playbackError,
       loopRange,
       loopEnabled,
       paddingSec,
@@ -379,6 +439,7 @@ export function SongPlayerProvider({
       pause,
       play,
       playing,
+      playbackError,
       playSegment,
       playbackRate,
       seekTo,
@@ -401,14 +462,15 @@ export function SongPlayerProvider({
       releaseYoutubePlayer,
       setLocalAudio,
       reportPlaybackRate,
-      setPlaying,
+      reportPlaying,
+      reportPlaybackError,
       handlePlaybackEnded,
       durationSec: duration,
       videoId,
       source,
       tracks,
     }),
-    [duration, handlePlaybackEnded, releaseYoutubePlayer, reportPlaybackRate, setLocalAudio, setYoutubePlayer, source, tracks, videoId]
+    [duration, handlePlaybackEnded, releaseYoutubePlayer, reportPlaybackError, reportPlaybackRate, reportPlaying, setLocalAudio, setYoutubePlayer, source, tracks, videoId]
   );
 
   return (
@@ -447,7 +509,7 @@ export function EditorialPlayerPlate({
             ))}
           </div>
           {player.source === "local" ? (
-            <p className="mt-1 text-[11px] text-ink-soft">正在播放已保存的练习音频；请确认它与当前歌词是同一版本。</p>
+            <p className="mt-1 text-[11px] text-ink-soft">使用已保存的练习音频；请确认它与当前歌词是同一版本。</p>
           ) : null}
         </div>
       ) : null}
@@ -456,6 +518,7 @@ export function EditorialPlayerPlate({
       ) : (
         <YoutubePlate compact={compact} ctx={ctx} player={player} />
       )}
+      {player.playbackError ? <p role="alert" className="mt-2 text-sm text-red-700">{player.playbackError}</p> : null}
     </div>
   );
 }
@@ -481,15 +544,15 @@ function LocalPracticePlate({
           ref={(element) => ctx.setLocalAudio(track, element)}
           src={`/api/songs/${practice.songId}/practice/audio/${track}?v=${practice.audioSha256}`}
           preload={track === ctx.tracks[0] ? "metadata" : "auto"}
-          onPlay={() => { if (track === ctx.tracks[0]) ctx.setPlaying(true); }}
           onPause={(event) => {
             if (track === ctx.tracks[0] && event.currentTarget.paused && !event.currentTarget.ended) {
-              ctx.setPlaying(false);
+              ctx.reportPlaying(event.currentTarget, false);
             }
           }}
           onEnded={(event) => {
-            if (track === ctx.tracks[0] && event.currentTarget.ended) ctx.handlePlaybackEnded();
+            if (track === ctx.tracks[0] && event.currentTarget.ended) ctx.handlePlaybackEnded(event.currentTarget);
           }}
+          onError={(event) => ctx.reportPlaybackError(event.currentTarget, "练习音频加载失败，请刷新页面或重新上传音频。")}
         />
       ))}
       <div className="relative aspect-video bg-ink border border-ink overflow-hidden text-paper p-5 flex flex-col justify-between">
@@ -647,11 +710,12 @@ function YoutubePlate({
             setReady(true);
           }}
           onStateChange={(event: YouTubeEvent) => {
-            if (event.data === 0) ctx.handlePlaybackEnded();
-            else ctx.setPlaying(event.data === 1);
+            if (event.data === 0) ctx.handlePlaybackEnded(event.target);
+            else ctx.reportPlaying(event.target, event.data === 1);
           }}
           onPlaybackRateChange={(event: YouTubeEvent) => ctx.reportPlaybackRate(Number(event.data))}
-          onError={() => {
+          onError={(event: YouTubeEvent) => {
+            ctx.reportPlaybackError(event.target, "YouTube 播放失败，请重新加载播放器，或切换到练习音频。");
             if (retryCount.current < 2) {
               retryCount.current += 1;
               reload();
@@ -676,6 +740,7 @@ function YoutubePlate({
               <Play className="w-4 h-4 ml-0.5" />
             </button>
             <div className="font-mono text-[10px] tracking-[0.2em] uppercase opacity-80">YT · {ctx.videoId}</div>
+            <p className="px-4 text-center text-xs">YouTube 尚未加载，可重试或切换到练习音频。</p>
           </div>
         ) : null}
       </div>

@@ -19,6 +19,7 @@ export type PlayerContextValue = {
   playbackRate: number;
   availableRates: number[];
   playing: boolean;
+  playbackError: string | null;
   loopRange: { startTime: number; endTime: number } | null;
   loopEnabled: boolean;
   paddingSec: number;

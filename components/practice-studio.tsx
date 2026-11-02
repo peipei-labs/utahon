@@ -434,7 +434,7 @@ export function PracticeStudio({
         <div className="border border-rule bg-paper-deep/35 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Gauge className="w-4 h-4 text-red" strokeWidth={1.5} />
-            <Smallcaps tone="ink">Speed · pitch preserved</Smallcaps>
+            <Smallcaps tone="ink">原曲速度 · 保持音高</Smallcaps>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {rates.map((rate) => (
@@ -449,6 +449,8 @@ export function PracticeStudio({
               </TextPill>
             ))}
           </div>
+
+          <p className="mt-2 text-[11px] text-ink-soft">只调整原曲歌声；日语朗读速度在右上角音色菜单设置。</p>
 
           <div className="flex items-center gap-2 mt-5 mb-3">
             <Scissors className="w-4 h-4 text-red" strokeWidth={1.5} />
