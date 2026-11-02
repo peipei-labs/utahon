@@ -5,17 +5,61 @@ const RATE_KEY_PREFIX = "utahon-voice-rate:";
 const BROWSER_VOICE_KEY = "__browser__";
 
 export const DEFAULT_RATE = 0.85;
-export const VALID_RATES = [0.6, 0.75, 0.85, 1.0, 1.25, 1.5] as const;
+export const VALID_RATES = [0.5, 0.6, 0.75, 0.85, 1.0, 1.25, 1.5] as const;
 export type ValidRate = (typeof VALID_RATES)[number];
+
+const unsavedSettings = new WeakMap<Window, Map<string, string>>();
+const settingsListeners = new Set<() => void>();
+
+function readSetting(key: string): string | null {
+  const pending = unsavedSettings.get(window)?.get(key);
+  if (pending !== undefined) return pending;
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writeSetting(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+    unsavedSettings.get(window)?.delete(key);
+  } catch {
+    let pending = unsavedSettings.get(window);
+    if (!pending) { pending = new Map(); unsavedSettings.set(window, pending); }
+    pending.set(key, value);
+  }
+}
+
+function publishSettings(): void {
+  for (const listener of settingsListeners) listener();
+}
+
+export function subscribeTtsSettings(listener: () => void): () => void {
+  settingsListeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === VOICE_KEY || event.key.startsWith(RATE_KEY_PREFIX)) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    settingsListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export function getTtsSettingsSnapshot(): string {
+  const voice = getSelectedVoiceName();
+  return JSON.stringify([voice, getSelectedRate(voice)]);
+}
+
+export function getServerTtsSettingsSnapshot(): string {
+  return JSON.stringify([DEFAULT_SERVER_VOICE, DEFAULT_RATE]);
+}
 
 export function getSelectedVoiceName(): string | null {
   if (typeof window === "undefined") return null;
-  let stored: string | null = null;
-  try { stored = localStorage.getItem(VOICE_KEY); } catch {}
+  const stored = readSetting(VOICE_KEY);
   if (stored === BROWSER_VOICE_KEY) return null;
   if (!stored) return DEFAULT_SERVER_VOICE;
   if (isRetiredServerVoice(stored)) {
-    setSelectedVoiceName(DEFAULT_SERVER_VOICE);
+    writeSetting(VOICE_KEY, DEFAULT_SERVER_VOICE);
     return DEFAULT_SERVER_VOICE;
   }
   return stored;
@@ -23,7 +67,8 @@ export function getSelectedVoiceName(): string | null {
 
 export function setSelectedVoiceName(name: string | null): void {
   if (typeof window === "undefined") return;
-  try { localStorage.setItem(VOICE_KEY, name ?? BROWSER_VOICE_KEY); } catch {}
+  writeSetting(VOICE_KEY, name ?? BROWSER_VOICE_KEY);
+  publishSettings();
 }
 
 export function clampRate(n: number): ValidRate {
@@ -47,8 +92,7 @@ function rateKey(voiceName: string | null): string {
 
 export function getSelectedRate(voiceName: string | null): ValidRate {
   if (typeof window === "undefined") return DEFAULT_RATE;
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(rateKey(voiceName)); } catch {}
+  const raw = readSetting(rateKey(voiceName));
   if (raw === null) return DEFAULT_RATE;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return DEFAULT_RATE;
@@ -61,7 +105,8 @@ export function getSelectedRate(voiceName: string | null): ValidRate {
 export function setSelectedRate(voiceName: string | null, rate: number): void {
   if (typeof window === "undefined") return;
   const safe = clampRate(rate);
-  try { localStorage.setItem(rateKey(voiceName), String(safe)); } catch {}
+  writeSetting(rateKey(voiceName), String(safe));
+  publishSettings();
 }
 
 export function listJapaneseVoices(): SpeechSynthesisVoice[] {

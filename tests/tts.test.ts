@@ -167,7 +167,12 @@ function browserHarness(options: { localVoice?: boolean; audioFailure?: boolean;
       });
     },
   };
-  set("window", { speechSynthesis: synthesis });
+  const events = new EventTarget();
+  set("window", {
+    speechSynthesis: synthesis,
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+  });
   set("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
   set("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
   set("Audio", class {
@@ -304,5 +309,47 @@ test("disabled browser storage does not prevent pronunciation", async () => {
     await assert.doesNotReject(tts.speak("こんにちは").promise);
     assert.equal(browser.counts().played, 1);
     assert.equal(tts.getTtsNotice(), null);
+  } finally { browser.restore(); }
+});
+
+test("voice and slow rate remain effective for later lyrics when preference storage rejects writes", async () => {
+  const browser = browserHarness();
+  const requested: URL[] = [];
+  const snapshots: string[] = [];
+  const unsubscribe = tts.subscribeTtsSettings(() => snapshots.push(tts.getTtsSettingsSnapshot()));
+  try {
+    browser.storage.set("utahon-voice", voices.DEFAULT_SERVER_VOICE);
+    browser.storage.set(`utahon-voice-rate:${voices.DEFAULT_SERVER_VOICE}`, "1");
+    globalThis.localStorage.setItem = () => { throw new Error("storage blocked"); };
+    globalThis.fetch = async (input) => {
+      requested.push(new URL(String(input), "https://utahon.test"));
+      return new Response(new Blob(["mp3"], { type: "audio/mpeg" }));
+    };
+    tts.setSelectedRate(voices.DEFAULT_SERVER_VOICE, 0.75);
+    await tts.speak("preview", 0.75).promise;
+    await tts.speak("lyrics").promise;
+    tts.setSelectedRate(voices.DEFAULT_SERVER_VOICE, 0.5);
+    await tts.speak("half speed").promise;
+    tts.setSelectedVoiceName("ja-JP-KeitaNeural");
+    tts.setSelectedRate("ja-JP-KeitaNeural", 0.5);
+    await tts.speak("selected voice").promise;
+    assert.deepEqual(requested.map((url) => url.searchParams.get("rate")), ["0.75", "0.75", "0.5", "0.5"]);
+    assert.equal(requested[3].searchParams.get("voice"), "ja-JP-KeitaNeural");
+    assert.equal(browser.storage.get(`utahon-voice-rate:${voices.DEFAULT_SERVER_VOICE}`), "1");
+    assert.equal(snapshots.length, 4);
+    assert.deepEqual(JSON.parse(snapshots.at(-1)!), ["ja-JP-KeitaNeural", 0.5]);
+    unsubscribe();
+    tts.setSelectedRate("ja-JP-KeitaNeural", 1);
+    assert.equal(snapshots.length, 4);
+  } finally { unsubscribe(); browser.restore(); }
+});
+
+test("half-speed preference is preserved across a fresh browser instance", async () => {
+  const browser = browserHarness();
+  try {
+    browser.storage.set("utahon-voice", voices.DEFAULT_SERVER_VOICE);
+    browser.storage.set(`utahon-voice-rate:${voices.DEFAULT_SERVER_VOICE}`, "0.5");
+    assert.equal(tts.getSelectedRate(voices.DEFAULT_SERVER_VOICE), 0.5);
+    assert.equal(tts.clampRate(0.5), 0.5);
   } finally { browser.restore(); }
 });

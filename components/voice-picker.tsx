@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Volume2, Check, Loader2, Minus, Plus } from "lucide-react";
 import {
-  getSelectedVoiceName,
   setSelectedVoiceName,
   getSelectedRate,
+  getTtsSettingsSnapshot,
+  getServerTtsSettingsSnapshot,
+  subscribeTtsSettings,
   setSelectedRate,
   listJapaneseVoices,
   speak,
@@ -27,8 +29,8 @@ function formatRate(r: ValidRate): string {
 
 export function VoicePicker() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(listJapaneseVoices);
-  const [selected, setSelected] = useState<string | null>(getSelectedVoiceName);
-  const [rate, setRate] = useState<ValidRate>(() => getSelectedRate(getSelectedVoiceName()));
+  const settings = useSyncExternalStore(subscribeTtsSettings, getTtsSettingsSnapshot, getServerTtsSettingsSnapshot);
+  const [selected, rate] = JSON.parse(settings) as [string | null, ValidRate];
   const [open, setOpen] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -64,10 +66,8 @@ export function VoicePicker() {
 
   function pick(name: string | null) {
     setSelectedVoiceName(name);
-    setSelected(name);
     // 切到目标 voice 时同步加载该 voice 的持久化 rate（首次为 DEFAULT_RATE）
     const nextRate = getSelectedRate(name);
-    setRate(nextRate);
     setPreviewing(true);
     const handle = speak(PREVIEW_TEXT, nextRate);
     previewHandleRef.current = handle;
@@ -81,9 +81,7 @@ export function VoicePicker() {
 
   function changeRate(next: ValidRate) {
     setSelectedRate(selected, next);
-    setRate(next);
     setPreviewing(true);
-    // 显式传 next 避免依赖 setState 异步导致 preview 用旧值
     const handle = speak(PREVIEW_TEXT, next);
     previewHandleRef.current = handle;
     handle.promise.finally(() => {
@@ -160,9 +158,12 @@ export function VoicePicker() {
 
             </div>
             <div className="pt-2 mt-1 border-t border-rule flex items-center justify-between gap-2">
-              <Smallcaps tone="ink">速度</Smallcaps>
+              <Smallcaps tone="ink">朗读速度</Smallcaps>
               <RateStepper rate={rate} onChange={changeRate} />
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-soft">
+              只调整日语朗读。手机推荐 Nanami / Keita；原曲速度在练习区调整。
+            </p>
             <div className="pt-1.5 mt-1 flex items-center gap-1.5">
               {previewing && <Loader2 className="w-3 h-3 animate-spin text-ink-mute" />}
               <Smallcaps>{previewing ? "合成中…" : "选中后立即播放预览句"}</Smallcaps>

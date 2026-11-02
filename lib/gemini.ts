@@ -104,14 +104,17 @@ function isOverloadError(err: unknown): boolean {
 }
 
 function runWithModel(modelId: string, prompt: string) {
-  const model = getGeminiModel({
-    model: modelId,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0.3,
+  const model = getGeminiModel(
+    {
+      model: modelId,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: RESPONSE_SCHEMA,
+        temperature: 0.3,
+      },
     },
-  });
+    120_000
+  );
   return callWithRetry(() => model.generateContent(prompt));
 }
 
