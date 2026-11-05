@@ -13,6 +13,28 @@
   --red-soft: #b86560;
 }
 
+.shironeri {
+  --paper: #f7f6f2;
+  --paper-deep: #ebeae5;
+  --ink: #1f1d1a;
+  --ink-soft: #55514b;
+  --ink-mute: #8d877e;
+  --rule: #ddd9d0;
+  --red: #9a2f2a;
+  --red-soft: #b86560;
+}
+
+.koke {
+  --paper: #eef0ea;
+  --paper-deep: #e2e5da;
+  --ink: #1c1e1a;
+  --ink-soft: #4f544c;
+  --ink-mute: #858a7e;
+  --rule: #d6d9cc;
+  --red: #9a2f2a;
+  --red-soft: #b86560;
+}
+
 .dark {
   --paper: #141210;
   --paper-deep: #1f1b17;
