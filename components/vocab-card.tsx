@@ -11,6 +11,7 @@ import {
   LevelPips,
   Smallcaps,
   relativeAdded,
+  stalenessLevel,
 } from "./editorial-shell";
 
 function hasKanji(text: string): boolean {
@@ -48,10 +49,7 @@ export function VocabCard({ entry }: { entry: VocabEntry }) {
 
   if (hidden) return null;
 
-  const decorativeLevel = Math.max(
-    1,
-    Math.min(5, 1 + Math.floor((Date.now() - entry.createdAt) / 86400000 / 3))
-  );
+  const decorativeLevel = stalenessLevel(entry.createdAt);
 
   return (
     <article className="group relative py-5 md:py-6 border-b border-rule">

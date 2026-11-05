@@ -33,6 +33,13 @@ export function relativeAdded(createdAt: number, now: number = Date.now()): stri
   return `${Math.floor(days / 30)} 月前`;
 }
 
+export function stalenessLevel(createdAt: number, now: number = Date.now()): number {
+  return Math.max(
+    1,
+    Math.min(5, 1 + Math.floor((now - createdAt) / 86400000 / 3))
+  );
+}
+
 export function hueFromId(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
