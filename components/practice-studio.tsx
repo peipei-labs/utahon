@@ -210,6 +210,7 @@ export function PracticeStudio({
   }
 
   async function handleSave(): Promise<void> {
+    if (saving) return;
     setNotice("");
     setError("");
     try {
