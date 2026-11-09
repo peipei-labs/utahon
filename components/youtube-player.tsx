@@ -535,7 +535,6 @@ function LocalPracticePlate({
   player: PlayerContextValue;
 }) {
   const { practice } = usePractice();
-  const progress = player.duration > 0 ? (player.currentTime / player.duration) * 100 : 0;
   return (
     <div className={cn("w-full", className)}>
       {ctx.tracks.map((track) => (
@@ -599,19 +598,17 @@ function LocalPracticePlate({
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            className="relative h-7 w-full flex items-center"
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              player.seekTo(((event.clientX - rect.left) / rect.width) * player.duration);
-            }}
+          <input
+            type="range"
+            min="0"
+            max={Math.max(0, player.duration)}
+            step="0.1"
+            value={Math.min(player.currentTime, Math.max(0, player.duration))}
+            disabled={player.duration <= 0}
+            onChange={(event) => player.seekTo(Number(event.target.value))}
             aria-label="跳转练习音频"
-          >
-            <span className="absolute inset-x-0 h-px bg-paper/30" />
-            <span className="absolute left-0 h-px bg-paper" style={{ width: `${progress}%` }} />
-            <span className="absolute w-2 h-2 rounded-full bg-paper -translate-x-1/2" style={{ left: `${progress}%` }} />
-          </button>
+            className="relative block h-7 w-full cursor-pointer accent-[var(--paper)] disabled:cursor-default disabled:opacity-50"
+          />
         </div>
       )}
       {!compact ? <PlayerClock player={player} /> : null}
@@ -772,7 +769,7 @@ function PlayerClock({ player }: { player: PlayerContextValue }) {
   return (
     <div className="flex justify-between items-center font-mono text-[10px] tracking-[0.08em] text-ink-mute mt-1.5 tabular">
       <span>{formatDuration(player.currentTime)}</span>
-      <span className="text-rule flex-1 text-center">━━━━━━━━━━━━</span>
+      <span aria-hidden="true" className="text-rule flex-1 text-center">━━━━━━━━━━━━</span>
       <span>{formatDuration(player.duration)}</span>
     </div>
   );

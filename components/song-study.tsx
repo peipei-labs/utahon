@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { buildChordTimeline } from "@/lib/chord-timeline";
 import type { SongFull } from "@/types/lyrics";
 import { usePlayer } from "./player-context";
+import { usePlayerHotkeys } from "./use-player-hotkeys";
 import { formatDuration } from "./editorial-shell";
 import { EditorialPlayerPlate } from "./youtube-player";
 import { LyricLine } from "./lyric-line";
@@ -65,6 +66,7 @@ export function SongStudy({ song, scoreSources, externalAudioLinks }: {
   externalAudioLinks: ReactNode;
 }) {
   const { practice } = usePractice();
+  usePlayerHotkeys();
   const [panel, setPanel] = useState<StudyPanel | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const dialogRef = useRef<HTMLDialogElement>(null);

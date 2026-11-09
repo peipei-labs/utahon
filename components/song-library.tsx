@@ -41,6 +41,7 @@ export function SongLibrary({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [bulkError, setBulkError] = useState("");
   const [, startTransition] = useTransition();
 
   const artistCounts = useMemo(() => {
@@ -121,6 +122,7 @@ export function SongLibrary({
     if (ids.length === 0) return;
     if (!confirm(`确定删除 ${ids.length} 首歌?`)) return;
     setDeleting(true);
+    setBulkError("");
     try {
       const res = await fetch("/api/songs/batch", {
         method: "POST",
@@ -129,14 +131,14 @@ export function SongLibrary({
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        alert(data.error ?? `删除失败 HTTP ${res.status}`);
+        setBulkError(data.error ?? `删除失败 HTTP ${res.status}`);
         return;
       }
       setSelectedIds(new Set());
       setSelectMode(false);
       startTransition(() => router.refresh());
     } catch (err) {
-      alert(err instanceof Error ? err.message : "网络错误");
+      setBulkError(err instanceof Error ? err.message : "网络错误");
     } finally {
       setDeleting(false);
     }
@@ -313,6 +315,11 @@ export function SongLibrary({
               <span className="font-mono text-[10px] tracking-[0.18em] uppercase pl-1 pr-2 whitespace-nowrap">
                 Selected {selectedIds.size} / {listSongs.length}
               </span>
+              {bulkError ? (
+                <span role="alert" className="font-mono text-[10px] text-red-soft pl-1 pr-2 whitespace-nowrap">
+                  {bulkError}
+                </span>
+              ) : null}
               <span className="w-px h-5 bg-paper/20" />
               <BarBtn onClick={selectAllVisible} ariaLabel="全选">
                 <CheckSquare className="w-[14px] h-[14px]" strokeWidth={1.5} />
@@ -363,6 +370,7 @@ function FilterChip({
       onClick={onClick}
       className={cn(
         "inline-flex items-baseline gap-1.5 px-2.5 py-1 border whitespace-nowrap transition",
+        "max-sm:min-h-8 max-sm:items-center",
         "font-mono text-[9.5px] tracking-[0.14em] uppercase",
         active
           ? "bg-ink text-paper border-ink"

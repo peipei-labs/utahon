@@ -222,6 +222,23 @@ export function PracticeStudio({
     }
   }
 
+  const saveRef = useRef(handleSave);
+  useEffect(() => {
+    saveRef.current = handleSave;
+  });
+
+  useEffect(() => {
+    if (!editing) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveRef.current();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [editing]);
+
   async function handleUpload(file: File | undefined): Promise<void> {
     if (!file) return;
     if (draftState && !window.confirm("上传音频会放弃未保存的练习修改，继续吗？")) {
@@ -562,7 +579,7 @@ export function PracticeStudio({
                         type="button"
                         onClick={() => player.toggleTrackMute(track)}
                         className={cn(
-                          "w-6 h-6 border font-mono text-[9px] transition",
+                          "w-8 h-8 border font-mono text-[9px] transition",
                           setting.muted ? "bg-red text-paper border-red" : "border-rule text-ink-mute hover:border-ink"
                         )}
                         aria-label={`${setting.muted ? "取消静音" : "静音"}${label}`}
@@ -573,7 +590,7 @@ export function PracticeStudio({
                         type="button"
                         onClick={() => player.toggleTrackSolo(track)}
                         className={cn(
-                          "w-6 h-6 border font-mono text-[9px] transition",
+                          "w-8 h-8 border font-mono text-[9px] transition",
                           setting.solo ? "bg-ink text-paper border-ink" : "border-rule text-ink-mute hover:border-ink"
                         )}
                         aria-label={`${setting.solo ? "取消独听" : "独听"}${label}`}

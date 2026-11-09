@@ -87,7 +87,9 @@ export function TextPill({
   const base = cn(
     "inline-flex items-center gap-1.5 border transition whitespace-nowrap",
     "font-mono tracking-[0.18em] uppercase",
-    size === "sm" ? "px-2 py-1 text-[9px]" : "px-3 py-1.5 text-[10px]",
+    size === "sm"
+      ? "px-2 py-1 text-[9px] max-sm:min-h-9 max-sm:px-3"
+      : "px-3 py-1.5 text-[10px]",
     active
       ? "bg-ink text-paper border-ink"
       : tone === "solid"

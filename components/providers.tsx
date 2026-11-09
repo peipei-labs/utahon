@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeProvider } from "next-themes";
+import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -12,7 +13,7 @@ export function Providers({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       themes={["light", "shironeri", "koke", "dark"]}
     >
-      {children}
+      <MotionConfig reducedMotion="user">{children}</MotionConfig>
     </ThemeProvider>
   );
 }
