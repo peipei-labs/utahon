@@ -229,7 +229,7 @@ export function PracticeStudio({
   });
 
   useEffect(() => {
-    if (!editing) return;
+    if (!editing || panel !== "practice") return;
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -238,7 +238,7 @@ export function PracticeStudio({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editing]);
+  }, [editing, panel]);
 
   async function handleUpload(file: File | undefined): Promise<void> {
     if (!file) return;
