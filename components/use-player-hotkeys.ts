@@ -28,6 +28,14 @@ export function usePlayerHotkeys(): void {
       const current = playerRef.current;
       if (!current?.available) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Holding a toggle key (Space/L/A/B) must not re-trigger on key
+      // auto-repeat; arrows keep repeat for continuous seeking.
+      if (
+        event.repeat &&
+        event.code !== "ArrowLeft" &&
+        event.code !== "ArrowRight"
+      )
+        return;
       if (isInteractiveTarget(event.target)) return;
 
       switch (event.code) {
