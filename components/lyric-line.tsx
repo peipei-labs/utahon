@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Volume2, Copy, Check, Music4, Star, Loader2 } from "lucide-react";
+import { Volume2, Copy, Check, Music4, Star, Loader2, X } from "lucide-react";
 import type { AnalyzedLine, Token } from "@/types/lyrics";
 import type { ChordEvent } from "@/types/practice";
 import { cn } from "@/lib/utils";
@@ -22,8 +22,15 @@ function isSymbolOnly(text: string): boolean {
   return text.length > 0 && /^[\s\p{P}\p{S}]+$/u.test(text);
 }
 
-function TokenChip({ token }: { token: Token }) {
-  const [open, setOpen] = useState(false);
+function TokenChip({
+  token,
+  open,
+  onToggle,
+}: {
+  token: Token;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const [starState, setStarState] = useState<StarState>("idle");
   const { speaking, toggle } = useTtsToggle();
   const songInfo = useSongInfo();
@@ -67,7 +74,7 @@ function TokenChip({ token }: { token: Token }) {
     <span className="relative inline-block">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         className={cn(
           "px-[2px] py-[1px] align-baseline transition-colors cursor-pointer touch-manipulation",
           "hover:bg-[color-mix(in_srgb,var(--red)_14%,transparent)]",
@@ -188,23 +195,50 @@ export function LyricLine({
   index: number;
   chords: ChordEvent[];
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [openToken, setOpenToken] = useState<number | null>(null);
+  const lineRef = useRef<HTMLDivElement>(null);
   const { speaking, toggle } = useTtsToggle();
   const player = usePlayer();
   const canPlaySegment = Boolean(player?.available) && line.endTime - line.startTime > 0.3;
 
+  useEffect(() => {
+    if (openToken === null) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (lineRef.current && !lineRef.current.contains(event.target as Node)) {
+        setOpenToken(null);
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenToken(null);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openToken]);
+
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(line.original);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setCopyState("copied");
     } catch {
-      // ignore — clipboard may be unavailable over http
+      // clipboard may be unavailable over http
+      setCopyState("error");
     }
   }
 
   return (
     <motion.div
+      ref={lineRef}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.015, duration: 0.22 }}
@@ -220,7 +254,14 @@ export function LyricLine({
         <ChordStrip chords={chords} startTime={line.startTime} endTime={line.endTime} />
         <div className="font-serif-jp jp text-[22px] md:text-[28px] leading-[1.55] text-ink font-medium break-words">
           {line.tokens.length > 0 ? (
-            line.tokens.map((t, i) => <TokenChip key={i} token={t} />)
+            line.tokens.map((t, i) => (
+              <TokenChip
+                key={i}
+                token={t}
+                open={openToken === i}
+                onToggle={() => setOpenToken(openToken === i ? null : i)}
+              />
+            ))
           ) : (
             <span>{line.original}</span>
           )}
@@ -269,11 +310,19 @@ export function LyricLine({
         <button
           type="button"
           onClick={handleCopy}
-          aria-label="复制原文"
+          aria-label={
+            copyState === "error"
+              ? "复制失败"
+              : copyState === "copied"
+              ? "已复制"
+              : "复制原文"
+          }
           className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-ink-soft hover:text-ink transition"
         >
-          {copied ? (
+          {copyState === "copied" ? (
             <Check className="w-3.5 h-3.5 text-red" strokeWidth={1.5} />
+          ) : copyState === "error" ? (
+            <X className="w-3.5 h-3.5 text-red-soft" strokeWidth={1.5} />
           ) : (
             <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />
           )}

@@ -137,6 +137,17 @@ ruby rt {
   color: var(--ink);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .study-details {
   border: 1px solid var(--rule);
   padding: 0.75rem;
